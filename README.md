@@ -1,97 +1,141 @@
 # Jump Analysis
 
-Project for front-view 2D LESS feature extraction and analysis.
+Jump Analysis is a research-oriented Python project for analyzing a drop jump
+from a frontal camera view. The goal is to extract pose-based biomechanical
+features from a webcam/video recording, compare them with a motion-capture
+reference dataset, and use that comparison as a first anomaly-detection layer.
 
-The current feature format has 37 columns:
+The project is currently focused on a front-view 2D approximation of a LESS-like
+workflow. It does not yet produce a clinical LESS score. Instead, it checks that
+the recorded movement follows the expected drop-jump protocol and then measures
+how far the extracted features are from the reference distribution.
 
-- 18 front-view features at initial contact (`ic_*`)
-- 18 front-view features at maximum knee flexion (`kfmax_*`)
-- `crop_length_frames`
+## Approach
 
-## Structure
+The system uses YOLO pose estimation to detect the user and track the relevant
+body landmarks. The live workflow starts with a setup phase: the user first
+stands on the floor, then on the box. This allows the project to estimate the
+body scale from the user's declared height, measure the apparent box height, and
+keep the camera calibration consistent during the recording.
+
+After setup, the user starts on the box, drops to the floor, lands, and performs
+the rebound jump. The system records the motion only after detecting the drop.
+It then verifies three protocol conditions:
+
+- the subject started from a raised position;
+- both feet reached contact at approximately the same time;
+- a second jump occurred after landing.
+
+If the protocol is valid, the pose sequence is reduced to two keyframes:
+
+- `ic`: initial contact;
+- `kfmax`: maximum knee flexion.
+
+For each keyframe, the project extracts 18 frontal 2D features. Together with
+the frame distance between the two keyframes, this gives the current 37-feature
+representation:
 
 ```text
-src/jump_analysis/data/dataset.py        # standard 37-feature column names
-src/jump_analysis/data/mocap_dataset.py  # converts the 183-athlete mocap dataset
-src/jump_analysis/features/front_2d_features.py # feature math from front-view pose keyframes
-src/jump_analysis/models/model.py        # robust reference anomaly detector
-src/jump_analysis/video/yolo_video.py    # YOLO webcam/video acquisition
-src/jump_analysis/validation/setup_validation.py # setup/camera calibration checks
-src/jump_analysis/validation/protocol_validation.py # drop-jump protocol checks
-scripts/convert_mocap_dataset.py         # converts Kinematic_Data to 37 features
-scripts/main.py                          # main entrypoint for the full workflow
+18 ic_* features + 18 kfmax_* features + crop_length_frames = 37 features
 ```
 
-## Convert The 183-Athlete Dataset
+## Reference Data
 
-```bash
-python scripts/convert_mocap_dataset.py \
-  --root /Users/ale/Kinematic_Data \
-  --output mocap_front_37_features.csv
+The reference dataset comes from the 183-athlete motion-capture dataset. The raw
+dataset contains 3D marker data in MATLAB files. The project converts those
+markers into a frontal 2D representation compatible with the same feature
+extractor used for YOLO pose data.
+
+Webcam data and mocap data are not processed with two
+separate feature definitions. Both are converted into the same 37-column format,
+so the model can compare them feature by feature.
+
+## Model
+
+The current model is `RobustAnomalyModel`. It treats the converted mocap dataset as the
+normal reference distribution and compares a new jump against it.
+
+For every feature, the model estimates robust statistics:
+
+- median;
+- median absolute deviation;
+- central percentile range.
+
+At prediction time, it computes robust z-scores and counts how many features are
+outside the normal reference band. The output is an anomaly-style result:
+
+- `normal` if the jump is close to the reference distribution;
+- `anomaly` if too many features, or the strongest feature deviations, are far
+  from the reference.
+
+This should be interpreted as a similarity check against the available dataset,
+not as a medical diagnosis or a final LESS score.
+
+## Repository Structure
+
+```text
+scripts/
+  main.py
+  convert_mocap_dataset.py
+
+src/jump_analysis/
+  data/
+    dataset.py
+    mocap_dataset.py
+  features/
+    front_2d_features.py
+  feedback/
+    audio_feedback.py
+  models/
+    model.py
+  validation/
+    setup_validation.py
+    protocol_validation.py
+  video/
+    yolo_video.py
 ```
 
-For a quick single-subject test:
+`scripts/` contains user-facing entry points. These files are meant to be run
+from the terminal and orchestrate the workflow.
 
-```bash
-python scripts/convert_mocap_dataset.py --subject 909
-```
+`src/jump_analysis/` contains the reusable project code. Keeping the core logic
+inside `src` makes the project easier to test, import, and eventually reuse from
+a notebook, app, API, or graphical interface.
 
-## Compare A Webcam Jump To Mocap
+## Module Roles
 
-First create the reference CSV:
+`scripts/main.py` is the main runtime pipeline. It asks for the user's height,
+opens YOLO and the camera, runs setup validation, captures the drop jump,
+extracts the features, validates the protocol, compares the jump to the mocap
+reference, and writes the analysis outputs.
 
-```bash
-python scripts/convert_mocap_dataset.py \
-  --root /Users/ale/Kinematic_Data \
-  --output mocap_front_37_features.csv
-```
+`scripts/convert_mocap_dataset.py` converts the raw 183-athlete motion-capture
+dataset into the 37-feature CSV used as reference data.
 
-Then capture a jump and compare z-scores/percentiles:
+`data/dataset.py` defines the official 37 feature column names. This file is the
+shared contract between feature extraction, dataset conversion, and modeling.
 
-```bash
-python scripts/main.py
-```
+`data/mocap_dataset.py` loads the raw mocap `.mat` files, finds the drop-jump
+trial, maps 3D markers to frontal 2D keypoints, and produces rows compatible
+with the same feature format used by the webcam pipeline.
 
-If `--height-cm` is not provided, the script asks for the user's height first
-and opens the webcam only after the value is entered. The standard reference is
-`mocap_front_37_features.csv`, so you do not need to pass `--reference` unless
-you want to use another dataset.
+`features/front_2d_features.py` contains the geometric feature extraction logic.
+It receives already selected 2D keypoints and computes distances, ratios,
+frontal knee angles, tilt measures, and body-alignment features.
 
-The entered height is used in two places:
+`video/yolo_video.py` handles the camera/video side: frame acquisition, YOLO pose
+detection, subject selection, setup capture, keypoint normalization, drop
+triggering, frame recording, and conversion from YOLO frames to feature rows.
 
-- setup: estimate the box height from the floor/box calibration;
-- normalization: measure the user's body height in pixels during floor setup,
-  compute meters-per-pixel from the entered height, then convert shoulder width
-  and YOLO keypoints toward mocap-like metric coordinates.
+`validation/setup_validation.py` checks the calibration phase. It compares the
+floor pose and box pose, estimates scale from the user's height, measures box
+height, and warns about camera geometry issues such as roll or perspective.
 
-The capture waits while you stand still on the box/chair. Recording starts only
-when the ankles drop enough to indicate the beginning of the LESS drop jump.
-The head does not need to be visible, but the live capture requires shoulders,
-hips, knees, and ankles to stay visible throughout the jump.
+`validation/protocol_validation.py` checks whether the recorded movement has the
+expected drop-jump structure before the features are interpreted.
 
-Setup validation is intentionally soft for camera geometry: camera roll and
-high/low perspective produce warnings, while major floor-vs-box scale changes
-and missing box height are treated as errors.
-The setup checks should run only after the user is still: `StablePoseBuffer`
-collects several frames and returns a median pose only when movement is low.
-Warnings and errors can be announced by voice through `AudioFeedback`.
+`models/model.py` contains the robust anomaly detector used to compare the
+captured jump against the reference dataset.
 
-For smoother webcam capture on a laptop, the comparison script defaults to
-`yolo26n-pose.pt`. Use `--model yolo26x-pose.pt` only for offline video or if
-your machine can run it smoothly.
+`feedback/audio_feedback.py` contains optional voice feedback used during setup.
 
-## Anomaly Detection
-
-`scripts/main.py` now also writes `analysis_result.csv`. The robust
-anomaly model treats `mocap_front_37_features.csv` as the normal reference,
-computes robust z-scores and central percentile bands, then reports:
-
-- `prediction`: `normal` or `anomaly`
-- `anomaly_score`: mean of the worst feature deviations
-- `outlier_feature_count`: how many features are outside the normal band
-- `worst_feature`: the feature furthest from the reference
-
-All 37 features are still extracted. By default, anomaly detection uses the 36
-spatial features and excludes `crop_length_frames`, because frame count depends
-on camera FPS and can create false alarms. Use `--include-crop-length` only for
-controlled video with comparable frame rates.
