@@ -1,0 +1,21 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+.cache/
+.venv/
+
+# Local model weights and large datasets
+*.pt
+*.onnx
+*.c3d
+*.mat
+*.zip
+*.tar
+*.tar.gz
+data/
+datasets/
+
+# Generated outputs
+less_features.csv
+less_features.json
+analysis_result.csv
