@@ -1,4 +1,11 @@
 .DS_Store
+.codex_write_test
+.idea/
+*.app
+xcuserdata/
+*.xcuserdatad/
+*.xcuserstate
+DerivedData/
 __pycache__/
 *.py[cod]
 .cache/
