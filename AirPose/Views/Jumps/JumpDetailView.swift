@@ -9,7 +9,7 @@ struct JumpDetailView: View {
     var body: some View {
         AirPoseScrollCanvas { size in
             VStack(spacing: 20) {
-                JumpCardView(jump: jump)
+                JumpCardView(jump: jump, showsFeedback: true)
                     .frame(maxWidth: min(AirPoseLayout.contentMaxWidth(for: size), 920))
 
                 detailSection

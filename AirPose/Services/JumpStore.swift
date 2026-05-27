@@ -50,6 +50,12 @@ final class JumpStore: ObservableObject {
         save()
     }
 
+    func update(_ jump: Jump) {
+        guard let index = jumps.firstIndex(where: { $0.id == jump.id }) else { return }
+        jumps[index] = jump
+        save()
+    }
+
     func replaceAll(with jumps: [Jump]) {
         self.jumps = jumps
         save()

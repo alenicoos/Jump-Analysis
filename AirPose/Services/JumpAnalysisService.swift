@@ -23,6 +23,10 @@ enum JumpAnalysisServiceError: LocalizedError {
     }
 }
 
+private struct BackendErrorPayload: Decodable {
+    let detail: String
+}
+
 struct JumpAnalysisService {
     func analyzeJump(videoURL: URL?, settings: AppSettings, athleteHeightCm: Double?) async throws -> JumpAnalysisResponse {
         if settings.mockModeEnabled {
@@ -62,8 +66,8 @@ struct JumpAnalysisService {
         }
 
         guard (200...299).contains(httpResponse.statusCode) else {
-            let body = String(data: data, encoding: .utf8) ?? "Unexpected server response."
-            throw JumpAnalysisServiceError.serverError(body)
+            let message = parseServerErrorMessage(from: data)
+            throw JumpAnalysisServiceError.serverError(message)
         }
 
         let decoder = JSONDecoder()
@@ -115,6 +119,18 @@ struct JumpAnalysisService {
             landingAsymmetryRatio: Double.random(in: 0.02...0.18),
             kneeAsymmetryRatio: Double.random(in: 0.01...0.14)
         )
+    }
+
+    private func parseServerErrorMessage(from data: Data) -> String {
+        if let payload = try? JSONDecoder().decode(BackendErrorPayload.self, from: data) {
+            return payload.detail
+        }
+
+        if let body = String(data: data, encoding: .utf8), !body.isEmpty {
+            return body
+        }
+
+        return "Unexpected server response."
     }
 }
 

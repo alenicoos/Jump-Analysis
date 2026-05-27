@@ -8,6 +8,7 @@ struct AirPoseApp: App {
     @StateObject private var settingsStore: AppSettingsStore
     @StateObject private var authenticationService: AuthenticationService
     @StateObject private var cloudSyncCoordinator: CloudSyncCoordinator
+    @StateObject private var jumpNarrationCoordinator: JumpNarrationCoordinator
     @StateObject private var cameraViewModel: CameraViewModel
     @StateObject private var authViewModel: AuthViewModel
     @StateObject private var tabRouter = TabRouter()
@@ -19,6 +20,7 @@ struct AirPoseApp: App {
         let profileStore = UserProfileStore()
         let settingsStore = AppSettingsStore()
         let authenticationService = AuthenticationService()
+        let llmFeedbackService = LLMFeedbackService()
         let cloudSyncCoordinator = CloudSyncCoordinator(
             authenticationService: authenticationService,
             jumpStore: jumpStore,
@@ -26,19 +28,27 @@ struct AirPoseApp: App {
             jumpService: FirebaseJumpService(),
             profileService: FirebaseProfileService()
         )
+        let jumpNarrationCoordinator = JumpNarrationCoordinator(
+            jumpStore: jumpStore,
+            settingsStore: settingsStore,
+            cloudSyncCoordinator: cloudSyncCoordinator,
+            llmFeedbackService: llmFeedbackService
+        )
 
         _jumpStore = StateObject(wrappedValue: jumpStore)
         _profileStore = StateObject(wrappedValue: profileStore)
         _settingsStore = StateObject(wrappedValue: settingsStore)
         _authenticationService = StateObject(wrappedValue: authenticationService)
         _cloudSyncCoordinator = StateObject(wrappedValue: cloudSyncCoordinator)
+        _jumpNarrationCoordinator = StateObject(wrappedValue: jumpNarrationCoordinator)
         _cameraViewModel = StateObject(
             wrappedValue: CameraViewModel(
                 jumpStore: jumpStore,
                 profileStore: profileStore,
                 settingsStore: settingsStore,
                 cloudSyncCoordinator: cloudSyncCoordinator,
-                analysisService: JumpAnalysisService()
+                analysisService: JumpAnalysisService(),
+                llmFeedbackService: llmFeedbackService
             )
         )
         _authViewModel = StateObject(wrappedValue: AuthViewModel(authenticationService: authenticationService))
@@ -60,8 +70,12 @@ struct AirPoseApp: App {
             .environmentObject(settingsStore)
             .environmentObject(authenticationService)
             .environmentObject(cloudSyncCoordinator)
+            .environmentObject(jumpNarrationCoordinator)
             .environmentObject(tabRouter)
             .preferredColorScheme(settingsStore.settings.themePreference.colorScheme)
+            .task {
+                jumpNarrationCoordinator.backfillExistingJumpsIfNeeded()
+            }
         }
     }
 }

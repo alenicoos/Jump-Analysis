@@ -56,6 +56,7 @@ private struct FirestoreJumpRecord: Codable {
     let videoFPS: Double
     let estimatedShoulderWidthCm: Double
     let analysisSummary: String
+    let llmNarratedSummary: Bool
     let initialContactLeftKneeAngleDeg: Double
     let initialContactRightKneeAngleDeg: Double
     let maxKneeFlexionLeftKneeAngleDeg: Double
@@ -83,6 +84,7 @@ private struct FirestoreJumpRecord: Codable {
         videoFPS = jump.videoFPS
         estimatedShoulderWidthCm = jump.estimatedShoulderWidthCm
         analysisSummary = jump.analysisSummary
+        llmNarratedSummary = jump.llmNarratedSummary
         initialContactLeftKneeAngleDeg = jump.initialContactLeftKneeAngleDeg
         initialContactRightKneeAngleDeg = jump.initialContactRightKneeAngleDeg
         maxKneeFlexionLeftKneeAngleDeg = jump.maxKneeFlexionLeftKneeAngleDeg
@@ -120,6 +122,7 @@ private struct FirestoreJumpRecord: Codable {
         self.videoFPS = data["videoFPS"] as? Double ?? 0
         self.estimatedShoulderWidthCm = data["estimatedShoulderWidthCm"] as? Double ?? 0
         self.analysisSummary = (data["analysisSummary"] as? String) ?? (data["llmFeedback"] as? String) ?? ""
+        self.llmNarratedSummary = data["llmNarratedSummary"] as? Bool ?? false
         self.initialContactLeftKneeAngleDeg = data["initialContactLeftKneeAngleDeg"] as? Double ?? 0
         self.initialContactRightKneeAngleDeg = data["initialContactRightKneeAngleDeg"] as? Double ?? 0
         self.maxKneeFlexionLeftKneeAngleDeg = data["maxKneeFlexionLeftKneeAngleDeg"] as? Double ?? 0
@@ -149,6 +152,7 @@ private struct FirestoreJumpRecord: Codable {
             "videoFPS": videoFPS,
             "estimatedShoulderWidthCm": estimatedShoulderWidthCm,
             "analysisSummary": analysisSummary,
+            "llmNarratedSummary": llmNarratedSummary,
             "initialContactLeftKneeAngleDeg": initialContactLeftKneeAngleDeg,
             "initialContactRightKneeAngleDeg": initialContactRightKneeAngleDeg,
             "maxKneeFlexionLeftKneeAngleDeg": maxKneeFlexionLeftKneeAngleDeg,
@@ -179,6 +183,7 @@ private struct FirestoreJumpRecord: Codable {
             videoFPS: videoFPS,
             estimatedShoulderWidthCm: estimatedShoulderWidthCm,
             analysisSummary: analysisSummary,
+            llmNarratedSummary: llmNarratedSummary,
             initialContactLeftKneeAngleDeg: initialContactLeftKneeAngleDeg,
             initialContactRightKneeAngleDeg: initialContactRightKneeAngleDeg,
             maxKneeFlexionLeftKneeAngleDeg: maxKneeFlexionLeftKneeAngleDeg,

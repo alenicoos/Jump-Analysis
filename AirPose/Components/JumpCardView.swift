@@ -2,6 +2,12 @@ import SwiftUI
 
 struct JumpCardView: View {
     let jump: Jump
+    let showsFeedback: Bool
+
+    init(jump: Jump, showsFeedback: Bool = false) {
+        self.jump = jump
+        self.showsFeedback = showsFeedback
+    }
 
     var body: some View {
         GlassCard {
@@ -32,11 +38,41 @@ struct JumpCardView: View {
                     MetricTile(title: "Landing Asym.", value: jump.landingAsymmetryRatio.airPoseRatioString, systemImage: "arrow.left.and.right")
                 }
 
-                Text(jump.analysisSummary)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                if showsFeedback {
+                    Divider()
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("LLM Feedback")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Color.airPosePrimaryText)
+
+                        Text(summaryText)
+                            .font(.subheadline)
+                            .foregroundStyle(Color.airPoseSecondaryText)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Text(footnoteText)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
         }
+    }
+
+    private var summaryText: String {
+        let trimmed = jump.analysisSummary.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return "No narrated feedback has been generated for this jump yet."
+        }
+
+        return trimmed
+    }
+
+    private var footnoteText: String {
+        jump.llmNarratedSummary
+            ? "Generated from the LLM prompt using the 183-athlete motion-capture reference dataset context."
+            : "Showing the saved summary for this jump. Configure OpenAI and reprocess older jumps if you want narrated feedback here."
     }
 }

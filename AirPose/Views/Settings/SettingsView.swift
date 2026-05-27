@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var viewModel: SettingsViewModel
+    @EnvironmentObject private var jumpNarrationCoordinator: JumpNarrationCoordinator
 
     var body: some View {
         AirPoseScrollCanvas { _ in
@@ -66,6 +67,48 @@ struct SettingsView: View {
                             Text(AppPlatform.backendHelpText)
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
+                        }
+
+                        Divider()
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("OpenAI Feedback")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.secondary)
+
+                            TextField(AppSettings.defaultLLMAPIURL, text: $viewModel.settings.llmAPIURL)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .keyboardType(.URL)
+
+                            SecureField("OpenAI API key", text: $viewModel.settings.llmAPIKey)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+
+                            Text("AirPose sends the jump metrics, not the video, to OpenAI's Responses API and stores the short coaching explanation it gets back.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Divider()
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Existing Jumps")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.secondary)
+
+                            Text("Use this after configuring OpenAI to regenerate posture feedback for older saved jumps.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+
+                            Button {
+                                jumpNarrationCoordinator.reprocessExistingJumps()
+                            } label: {
+                                Label("Reprocess Existing Jumps", systemImage: "arrow.triangle.2.circlepath")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.airPoseElectricBlue)
                         }
                     }
                 }

@@ -21,6 +21,7 @@ final class CameraViewModel: ObservableObject {
     private let settingsStore: AppSettingsStore
     private let cloudSyncCoordinator: CloudSyncCoordinator
     private let analysisService: JumpAnalysisService
+    private let llmFeedbackService: LLMFeedbackService
     private var cancellables = Set<AnyCancellable>()
 
     init(
@@ -28,13 +29,15 @@ final class CameraViewModel: ObservableObject {
         profileStore: UserProfileStore,
         settingsStore: AppSettingsStore,
         cloudSyncCoordinator: CloudSyncCoordinator,
-        analysisService: JumpAnalysisService
+        analysisService: JumpAnalysisService,
+        llmFeedbackService: LLMFeedbackService
     ) {
         self.jumpStore = jumpStore
         self.profileStore = profileStore
         self.settingsStore = settingsStore
         self.cloudSyncCoordinator = cloudSyncCoordinator
         self.analysisService = analysisService
+        self.llmFeedbackService = llmFeedbackService
 
         cameraManager.$errorMessage
             .receive(on: DispatchQueue.main)
@@ -108,42 +111,68 @@ final class CameraViewModel: ObservableObject {
                 athleteHeightCm: athleteHeightCm(for: settings.units)
             )
 
-            let jump = Jump(
-                date: analysis.timestamp,
-                videoURL: recordedVideoURL,
-                protocolPassed: analysis.protocolPassed,
-                prediction: analysis.prediction,
-                anomalyScore: analysis.anomalyScore,
-                outlierFeatureCount: analysis.outlierFeatureCount,
-                analyzedFeatureCount: analysis.analyzedFeatureCount,
-                maxAbsRobustZ: analysis.maxAbsRobustZ,
-                worstFeature: analysis.worstFeature,
-                worstFeatureZ: analysis.worstFeatureZ,
-                worstFeatureValue: analysis.worstFeatureValue,
-                worstFeatureReferenceMedian: analysis.worstFeatureReferenceMedian,
-                validPoseFrames: analysis.validPoseFrames,
-                initialContactFrame: analysis.initialContactFrame,
-                maxKneeFlexionFrame: analysis.maxKneeFlexionFrame,
-                videoFPS: analysis.videoFPS,
-                estimatedShoulderWidthCm: analysis.estimatedShoulderWidthCm,
-                analysisSummary: analysis.summary,
-                initialContactLeftKneeAngleDeg: analysis.initialContactLeftKneeAngleDeg,
-                initialContactRightKneeAngleDeg: analysis.initialContactRightKneeAngleDeg,
-                maxKneeFlexionLeftKneeAngleDeg: analysis.maxKneeFlexionLeftKneeAngleDeg,
-                maxKneeFlexionRightKneeAngleDeg: analysis.maxKneeFlexionRightKneeAngleDeg,
-                landingAsymmetryRatio: analysis.landingAsymmetryRatio,
-                kneeAsymmetryRatio: analysis.kneeAsymmetryRatio
-            )
+            let narration = await narratedSummary(for: analysis, settings: settings)
+            let jump = makeJump(from: analysis, summary: narration.summary, llmNarratedSummary: narration.didUseLLM)
 
             jumpStore.add(jump)
             cloudSyncCoordinator.saveJump(jump)
             latestJump = jump
             analysisState = .completed
-            successMessage = "Jump analyzed and saved."
+            successMessage = narration.didUseLLM
+                ? "Jump analyzed, narrated, and saved."
+                : "Jump analyzed and saved."
         } catch {
             analysisState = .idle
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func narratedSummary(for analysis: JumpAnalysisResponse, settings: AppSettings) async -> (summary: String, didUseLLM: Bool) {
+        guard settings.hasConfiguredLLMEndpoint else {
+            return (analysis.summary, false)
+        }
+
+        do {
+            let feedback = try await llmFeedbackService.generateFeedback(for: analysis, settings: settings)
+            let trimmedFeedback = feedback.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedFeedback.isEmpty else {
+                return (analysis.summary, false)
+            }
+
+            return (trimmedFeedback, true)
+        } catch {
+            return (analysis.summary, false)
+        }
+    }
+
+    private func makeJump(from analysis: JumpAnalysisResponse, summary: String, llmNarratedSummary: Bool) -> Jump {
+        Jump(
+            date: analysis.timestamp,
+            videoURL: recordedVideoURL,
+            protocolPassed: analysis.protocolPassed,
+            prediction: analysis.prediction,
+            anomalyScore: analysis.anomalyScore,
+            outlierFeatureCount: analysis.outlierFeatureCount,
+            analyzedFeatureCount: analysis.analyzedFeatureCount,
+            maxAbsRobustZ: analysis.maxAbsRobustZ,
+            worstFeature: analysis.worstFeature,
+            worstFeatureZ: analysis.worstFeatureZ,
+            worstFeatureValue: analysis.worstFeatureValue,
+            worstFeatureReferenceMedian: analysis.worstFeatureReferenceMedian,
+            validPoseFrames: analysis.validPoseFrames,
+            initialContactFrame: analysis.initialContactFrame,
+            maxKneeFlexionFrame: analysis.maxKneeFlexionFrame,
+            videoFPS: analysis.videoFPS,
+            estimatedShoulderWidthCm: analysis.estimatedShoulderWidthCm,
+            analysisSummary: summary,
+            llmNarratedSummary: llmNarratedSummary,
+            initialContactLeftKneeAngleDeg: analysis.initialContactLeftKneeAngleDeg,
+            initialContactRightKneeAngleDeg: analysis.initialContactRightKneeAngleDeg,
+            maxKneeFlexionLeftKneeAngleDeg: analysis.maxKneeFlexionLeftKneeAngleDeg,
+            maxKneeFlexionRightKneeAngleDeg: analysis.maxKneeFlexionRightKneeAngleDeg,
+            landingAsymmetryRatio: analysis.landingAsymmetryRatio,
+            kneeAsymmetryRatio: analysis.kneeAsymmetryRatio
+        )
     }
 
     private func athleteHeightCm(for units: MeasurementUnits) -> Double? {

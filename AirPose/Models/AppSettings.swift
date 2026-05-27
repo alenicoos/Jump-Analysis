@@ -1,14 +1,27 @@
 import SwiftUI
 
 struct AppSettings: Codable, Equatable {
+    static let defaultLLMAPIURL = "https://api.openai.com/v1/responses"
+    static let placeholderLLMAPIKey = "paste-openai-api-key-here"
+
     // The desktop build can use loopback directly, while iPhone builds should
     // point at the Mac over LAN.
     var backendServerURL: String = AppPlatform.defaultBackendURL
-    var llmAPIURL: String = "https://api.example.com/v1/feedback"
-    var llmAPIKey: String = "sk-placeholder"
+    var llmAPIURL: String = AppSettings.defaultLLMAPIURL
+    var llmAPIKey: String = AppSettings.placeholderLLMAPIKey
     var units: MeasurementUnits = .metric
     var mockModeEnabled: Bool = true
     var themePreference: ThemePreference = .system
+
+    var hasConfiguredLLMEndpoint: Bool {
+        let endpoint = llmAPIURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = llmAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !mockModeEnabled
+            && !endpoint.isEmpty
+            && endpoint == AppSettings.defaultLLMAPIURL
+            && !key.isEmpty
+            && key != AppSettings.placeholderLLMAPIKey
+    }
 }
 
 enum MeasurementUnits: String, Codable, CaseIterable, Identifiable {

@@ -20,6 +20,7 @@ struct Jump: Identifiable, Codable, Equatable {
     let videoFPS: Double
     let estimatedShoulderWidthCm: Double
     let analysisSummary: String
+    let llmNarratedSummary: Bool
     let initialContactLeftKneeAngleDeg: Double
     let initialContactRightKneeAngleDeg: Double
     let maxKneeFlexionLeftKneeAngleDeg: Double
@@ -47,6 +48,7 @@ struct Jump: Identifiable, Codable, Equatable {
         videoFPS: Double,
         estimatedShoulderWidthCm: Double,
         analysisSummary: String,
+        llmNarratedSummary: Bool = false,
         initialContactLeftKneeAngleDeg: Double,
         initialContactRightKneeAngleDeg: Double,
         maxKneeFlexionLeftKneeAngleDeg: Double,
@@ -73,6 +75,7 @@ struct Jump: Identifiable, Codable, Equatable {
         self.videoFPS = videoFPS
         self.estimatedShoulderWidthCm = estimatedShoulderWidthCm
         self.analysisSummary = analysisSummary
+        self.llmNarratedSummary = llmNarratedSummary
         self.initialContactLeftKneeAngleDeg = initialContactLeftKneeAngleDeg
         self.initialContactRightKneeAngleDeg = initialContactRightKneeAngleDeg
         self.maxKneeFlexionLeftKneeAngleDeg = maxKneeFlexionLeftKneeAngleDeg
@@ -97,6 +100,96 @@ struct Jump: Identifiable, Codable, Equatable {
         isNormalPrediction ? "Normal" : prediction.capitalized
     }
 
+    var analysisResponse: JumpAnalysisResponse {
+        JumpAnalysisResponse(
+            timestamp: date,
+            protocolPassed: protocolPassed,
+            prediction: prediction,
+            anomalyScore: anomalyScore,
+            outlierFeatureCount: outlierFeatureCount,
+            analyzedFeatureCount: analyzedFeatureCount,
+            maxAbsRobustZ: maxAbsRobustZ,
+            worstFeature: worstFeature,
+            worstFeatureZ: worstFeatureZ,
+            worstFeatureValue: worstFeatureValue,
+            worstFeatureReferenceMedian: worstFeatureReferenceMedian,
+            validPoseFrames: validPoseFrames,
+            initialContactFrame: initialContactFrame,
+            maxKneeFlexionFrame: maxKneeFlexionFrame,
+            videoFPS: videoFPS,
+            estimatedShoulderWidthCm: estimatedShoulderWidthCm,
+            summary: analysisSummary,
+            initialContactLeftKneeAngleDeg: initialContactLeftKneeAngleDeg,
+            initialContactRightKneeAngleDeg: initialContactRightKneeAngleDeg,
+            maxKneeFlexionLeftKneeAngleDeg: maxKneeFlexionLeftKneeAngleDeg,
+            maxKneeFlexionRightKneeAngleDeg: maxKneeFlexionRightKneeAngleDeg,
+            landingAsymmetryRatio: landingAsymmetryRatio,
+            kneeAsymmetryRatio: kneeAsymmetryRatio
+        )
+    }
+
+    func updatingNarration(summary: String, llmNarratedSummary: Bool) -> Jump {
+        Jump(
+            id: id,
+            date: date,
+            videoURL: videoURL,
+            protocolPassed: protocolPassed,
+            prediction: prediction,
+            anomalyScore: anomalyScore,
+            outlierFeatureCount: outlierFeatureCount,
+            analyzedFeatureCount: analyzedFeatureCount,
+            maxAbsRobustZ: maxAbsRobustZ,
+            worstFeature: worstFeature,
+            worstFeatureZ: worstFeatureZ,
+            worstFeatureValue: worstFeatureValue,
+            worstFeatureReferenceMedian: worstFeatureReferenceMedian,
+            validPoseFrames: validPoseFrames,
+            initialContactFrame: initialContactFrame,
+            maxKneeFlexionFrame: maxKneeFlexionFrame,
+            videoFPS: videoFPS,
+            estimatedShoulderWidthCm: estimatedShoulderWidthCm,
+            analysisSummary: summary,
+            llmNarratedSummary: llmNarratedSummary,
+            initialContactLeftKneeAngleDeg: initialContactLeftKneeAngleDeg,
+            initialContactRightKneeAngleDeg: initialContactRightKneeAngleDeg,
+            maxKneeFlexionLeftKneeAngleDeg: maxKneeFlexionLeftKneeAngleDeg,
+            maxKneeFlexionRightKneeAngleDeg: maxKneeFlexionRightKneeAngleDeg,
+            landingAsymmetryRatio: landingAsymmetryRatio,
+            kneeAsymmetryRatio: kneeAsymmetryRatio
+        )
+    }
+
+    func resettingNarrationStatus() -> Jump {
+        Jump(
+            id: id,
+            date: date,
+            videoURL: videoURL,
+            protocolPassed: protocolPassed,
+            prediction: prediction,
+            anomalyScore: anomalyScore,
+            outlierFeatureCount: outlierFeatureCount,
+            analyzedFeatureCount: analyzedFeatureCount,
+            maxAbsRobustZ: maxAbsRobustZ,
+            worstFeature: worstFeature,
+            worstFeatureZ: worstFeatureZ,
+            worstFeatureValue: worstFeatureValue,
+            worstFeatureReferenceMedian: worstFeatureReferenceMedian,
+            validPoseFrames: validPoseFrames,
+            initialContactFrame: initialContactFrame,
+            maxKneeFlexionFrame: maxKneeFlexionFrame,
+            videoFPS: videoFPS,
+            estimatedShoulderWidthCm: estimatedShoulderWidthCm,
+            analysisSummary: analysisSummary,
+            llmNarratedSummary: false,
+            initialContactLeftKneeAngleDeg: initialContactLeftKneeAngleDeg,
+            initialContactRightKneeAngleDeg: initialContactRightKneeAngleDeg,
+            maxKneeFlexionLeftKneeAngleDeg: maxKneeFlexionLeftKneeAngleDeg,
+            maxKneeFlexionRightKneeAngleDeg: maxKneeFlexionRightKneeAngleDeg,
+            landingAsymmetryRatio: landingAsymmetryRatio,
+            kneeAsymmetryRatio: kneeAsymmetryRatio
+        )
+    }
+
     private enum CodingKeys: String, CodingKey {
         case id
         case date
@@ -117,6 +210,7 @@ struct Jump: Identifiable, Codable, Equatable {
         case videoFPS
         case estimatedShoulderWidthCm
         case analysisSummary
+        case llmNarratedSummary
         case initialContactLeftKneeAngleDeg
         case initialContactRightKneeAngleDeg
         case maxKneeFlexionLeftKneeAngleDeg
@@ -154,6 +248,7 @@ struct Jump: Identifiable, Codable, Equatable {
         analysisSummary = try container.decodeIfPresent(String.self, forKey: .analysisSummary)
             ?? legacyContainer.decodeIfPresent(String.self, forKey: .llmFeedback)
             ?? ""
+        llmNarratedSummary = try container.decodeIfPresent(Bool.self, forKey: .llmNarratedSummary) ?? false
         initialContactLeftKneeAngleDeg = try container.decodeIfPresent(Double.self, forKey: .initialContactLeftKneeAngleDeg) ?? 0
         initialContactRightKneeAngleDeg = try container.decodeIfPresent(Double.self, forKey: .initialContactRightKneeAngleDeg) ?? 0
         maxKneeFlexionLeftKneeAngleDeg = try container.decodeIfPresent(Double.self, forKey: .maxKneeFlexionLeftKneeAngleDeg) ?? 0
@@ -183,6 +278,7 @@ struct Jump: Identifiable, Codable, Equatable {
         try container.encode(videoFPS, forKey: .videoFPS)
         try container.encode(estimatedShoulderWidthCm, forKey: .estimatedShoulderWidthCm)
         try container.encode(analysisSummary, forKey: .analysisSummary)
+        try container.encode(llmNarratedSummary, forKey: .llmNarratedSummary)
         try container.encode(initialContactLeftKneeAngleDeg, forKey: .initialContactLeftKneeAngleDeg)
         try container.encode(initialContactRightKneeAngleDeg, forKey: .initialContactRightKneeAngleDeg)
         try container.encode(maxKneeFlexionLeftKneeAngleDeg, forKey: .maxKneeFlexionLeftKneeAngleDeg)
