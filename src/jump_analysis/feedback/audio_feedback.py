@@ -28,12 +28,12 @@ class AudioFeedback:
     def warn(self, message: str) -> None:
         """Messaggio di warning."""
 
-        self.speak(f"Warning. {message}")
+        self.speak(f"Attenzione. {message}")
 
     def error(self, message: str) -> None:
         """Messaggio di errore."""
 
-        self.speak(f"Error. {message}")
+        self.speak(f"Errore. {message}")
 
     def speak(self, message: str, force: bool = False) -> None:
         """Stampa sempre il messaggio e, se abilitato, lo pronuncia."""

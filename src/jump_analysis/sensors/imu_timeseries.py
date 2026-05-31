@@ -2,8 +2,9 @@ from __future__ import annotations
 
 """IMU orientation time-series loading.
 
-For now this supports already exported/recorded CSV files with time and
-orientation columns.
+Per ora supportiamo CSV gia' esportati/registrati con colonne temporali e
+orientamento. Il lettore live del BWT901CL verra' aggiunto dopo aver fissato la
+modalita' di connessione usata in laboratorio.
 """
 
 from dataclasses import dataclass
@@ -15,7 +16,7 @@ import pandas as pd
 
 @dataclass
 class ImuOrientationSeries:
-    """Pitch/roll/yaw series that can be interpolated onto video timestamps."""
+    """Serie pitch/roll/yaw interpolabile sui timestamp video."""
 
     timestamp_s: np.ndarray
     pitch_deg: np.ndarray
@@ -23,7 +24,7 @@ class ImuOrientationSeries:
     yaw_deg: np.ndarray
 
     def interpolate(self, target_timestamp_s: np.ndarray) -> pd.DataFrame:
-        """Interpolate pitch/roll/yaw onto webcam timestamps."""
+        """Interpola pitch/roll/yaw sui timestamp della webcam."""
 
         if len(self.timestamp_s) == 0:
             return pd.DataFrame(
@@ -43,11 +44,11 @@ class ImuOrientationSeries:
 
 
 def load_imu_orientation_csv(path: str | Path | None) -> ImuOrientationSeries | None:
-    """Load an IMU CSV with timestamp and pitch/roll/yaw.
+    """Carica un CSV IMU con timestamp e pitch/roll/yaw.
 
-    Accepted columns:
-    - time: `timestamp_s`, `time_s`, `time`, or `timestamp`;
-    - angles: `pitch_deg`/`roll_deg`/`yaw_deg` or `pitch`/`roll`/`yaw`.
+    Colonne accettate:
+    - tempo: `timestamp_s`, `time_s`, `time`, oppure `timestamp`;
+    - angoli: `pitch_deg`/`roll_deg`/`yaw_deg` oppure `pitch`/`roll`/`yaw`.
     """
 
     if path is None:
@@ -70,7 +71,7 @@ def load_imu_orientation_csv(path: str | Path | None) -> ImuOrientationSeries | 
 
 
 def _first_existing(data: pd.DataFrame, candidates: list[str]) -> str:
-    """Return the first available column name."""
+    """Restituisce il primo nome colonna disponibile."""
 
     for candidate in candidates:
         if candidate in data.columns:

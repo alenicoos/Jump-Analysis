@@ -58,7 +58,8 @@ def main() -> None:
     parser.add_argument("--min-drop-ratio", type=float, default=0.06, help="Drop trigger threshold as body-height fraction.")
     parser.add_argument("--height-cm", type=float, help="User height in centimeters for setup box-height estimation.")
     parser.add_argument("--manual-box-setup", action="store_true", help="Do not auto-detect box entry during setup.")
-    parser.add_argument("--audio", action="store_true", help="Enable spoken setup feedback.")
+    parser.add_argument("--audio", action="store_true", help="Enable spoken setup feedback. Kept for compatibility; audio is now enabled by default.")
+    parser.add_argument("--no-audio", action="store_true", help="Disable spoken setup feedback.")
     parser.add_argument("--reference", default="mocap_front_37_features.csv", help="Mocap feature CSV.")
     parser.add_argument("--features-output", default="yolo_front_features.csv", help="Output YOLO feature CSV.")
     parser.add_argument("--comparison-output", default="yolo_vs_mocap_comparison.csv", help="Output comparison CSV.")
@@ -69,6 +70,7 @@ def main() -> None:
     parser.add_argument("--no-show", action="store_true", help="Do not show capture window.")
     parser.add_argument("--allow-invalid-protocol", action="store_true", help="Continue even if the captured drop jump protocol fails.")
     args = parser.parse_args()
+    setup_audio = args.audio or not args.no_audio
 
     # L'altezza serve per convertire pixel in metri durante il setup.
     height_cm = args.height_cm if args.height_cm is not None else ask_height_cm()
@@ -91,7 +93,7 @@ def main() -> None:
             model,
             height_cm=height_cm,
             show=not args.no_show,
-            audio=args.audio,
+            audio=setup_audio,
             auto_detect_box=not args.manual_box_setup,
         )
         shoulder_width_m = calibration.measured_shoulder_width_m

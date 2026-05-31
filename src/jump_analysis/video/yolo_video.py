@@ -86,6 +86,8 @@ class YoloPoseFrame:
     keypoints_xy: np.ndarray
     keypoints_conf: np.ndarray
     box_xyxy: np.ndarray | None
+    timestamp_s: float = 0.0
+    raw_keypoints_xy: np.ndarray | None = None
 
 
 @dataclass
@@ -242,6 +244,7 @@ def capture_stable_setup_pose(
     show: bool = True,
     timeout_seconds: float = 30.0,
     stable_frames: int = 12,
+    feedback: AudioFeedback | None = None,
 ) -> StablePoseCapture:
     """Acquisisce una posa stabile durante una fase di setup.
 
@@ -295,6 +298,8 @@ def capture_stable_setup_pose(
             else:
                 missing = missing_required(kpts_conf)
                 lines.append(f"Figura incompleta: missing {missing}")
+                if feedback is not None:
+                    feedback.error("Figura incompleta. Spalle, anche, ginocchia e caviglie devono essere visibili.")
                 now = time.monotonic()
                 if now - last_debug_print > 1.0:
                     print(f"Setup incompleto. Keypoint mancanti: {missing}", flush=True)
@@ -305,6 +310,8 @@ def capture_stable_setup_pose(
                 body_height_buffer.clear()
         else:
             lines.append("Nessuna persona")
+            if feedback is not None:
+                feedback.error("Non vedo una persona. Entra nell'inquadratura.")
             buffer.clear()
             body_height_buffer.clear()
 
@@ -323,6 +330,7 @@ def capture_stable_box_pose_after_floor(
     timeout_seconds: float = 45.0,
     stable_frames: int = 12,
     min_box_height_ratio: float = 0.05,
+    feedback: AudioFeedback | None = None,
 ) -> np.ndarray:
     """Acquisisce automaticamente la posa sul box dopo la posa a terra.
 
@@ -381,9 +389,13 @@ def capture_stable_box_pose_after_floor(
                 else:
                     buffer.clear()
                     lines.append("Non sei ancora abbastanza sopra il pavimento")
+                    if feedback is not None:
+                        feedback.error("Non sembri ancora sopra il box. Sali sul rialzo e resta fermo.")
             else:
                 missing = missing_required(kpts_conf)
                 lines.append(f"Figura incompleta: missing {missing}")
+                if feedback is not None:
+                    feedback.error("Figura incompleta sul box. Devono vedersi spalle, anche, ginocchia e caviglie.")
                 now = time.monotonic()
                 if now - last_debug_print > 1.0:
                     print(f"Setup box incompleto. Keypoint mancanti: {missing}", flush=True)
@@ -391,6 +403,8 @@ def capture_stable_box_pose_after_floor(
                 buffer.clear()
         else:
             lines.append("Nessuna persona")
+            if feedback is not None:
+                feedback.error("Non vedo una persona. Entra nell'inquadratura.")
             buffer.clear()
 
         if show:
@@ -416,21 +430,22 @@ def run_floor_box_setup_with_open_capture(
     """
 
     feedback = AudioFeedback(enabled=audio)
-    feedback.speak("Setup. Stand on the floor and stay still.", force=True)
+    feedback.speak("Setup. Mettiti a terra e resta fermo.", force=True)
     print("\nSETUP 1/2: mettiti a terra, fermo, frontale alla camera.")
     floor_sample = capture_stable_setup_pose(
         cap,
         model,
         ["SETUP 1/2: stai a terra", "Figura intera visibile per misurare l'altezza"],
         show=show,
+        feedback=feedback,
     )
     floor_pose = floor_sample.keypoints_xy
 
-    feedback.speak("Floor pose acquired.", force=True)
+    feedback.speak("Posa a terra acquisita.", force=True)
     print("Posa a terra acquisita.")
     print(f"Altezza corpo in pixel: {floor_sample.body_height_px:.1f}px")
     print("\nSETUP 2/2: sali sul box/rialzo mantenendo la stessa distanza dalla camera.")
-    feedback.speak("Now stand on the box and stay still.", force=True)
+    feedback.speak("Ora sali sul box e resta fermo.", force=True)
     if auto_detect_box:
         box_pose = capture_stable_box_pose_after_floor(
             cap,
@@ -438,6 +453,7 @@ def run_floor_box_setup_with_open_capture(
             floor_pose,
             show=show,
             min_box_height_ratio=SetupValidator().min_box_height_ratio,
+            feedback=feedback,
         )
     else:
         box_sample = capture_stable_setup_pose(
@@ -445,6 +461,7 @@ def run_floor_box_setup_with_open_capture(
             model,
             ["SETUP 2/2: sali sul box", "Resta nella stessa distanza dalla camera"],
             show=show,
+            feedback=feedback,
         )
         box_pose = box_sample.keypoints_xy
 
@@ -456,9 +473,15 @@ def run_floor_box_setup_with_open_capture(
     )
     for message in result.messages:
         print(message, flush=True)
+    for check in result.checks:
+        if not check.passed and check.severity == "error":
+            if check.name == "floor_box_scale_stability":
+                feedback.error("Ti sei avvicinato o allontanato dalla camera tra terra e box. Torna alla stessa distanza.")
+            elif check.name == "box_height_detected":
+                feedback.error("Non riesco a misurare chiaramente l'altezza del box. Sali sul rialzo e resta fermo.")
     if result.calibration and result.calibration.estimated_box_height_cm is not None:
         feedback.speak(
-            f"Estimated box height {result.calibration.estimated_box_height_cm:.1f} centimeters.",
+            f"Altezza stimata del box {result.calibration.estimated_box_height_cm:.1f} centimetri.",
             force=True,
         )
         print(f"Pixel scale: {result.calibration.meters_per_pixel:.6f} m/px")
@@ -562,24 +585,60 @@ def capture_yolo_pose_frames_with_open_capture(
                             recording_started_at = now
                             frames = list(pre_roll_frames)
                             print("Drop rilevato: inizio registrazione.", flush=True)
-                            frames.append(YoloPoseFrame(frame_index, normalized, kpts_conf, box))
+                            frames.append(
+                                YoloPoseFrame(
+                                    frame_index,
+                                    normalized,
+                                    kpts_conf,
+                                    box,
+                                    timestamp_s=now,
+                                    raw_keypoints_xy=kpts_xy.copy(),
+                                )
+                            )
                         else:
                             # Ancora non e' iniziato il drop: aggiorniamo sia
                             # baseline sia pre-roll.
-                            pre_roll_frames.append(YoloPoseFrame(frame_index, normalized, kpts_conf, box))
+                            pre_roll_frames.append(
+                                YoloPoseFrame(
+                                    frame_index,
+                                    normalized,
+                                    kpts_conf,
+                                    box,
+                                    timestamp_s=now,
+                                    raw_keypoints_xy=kpts_xy.copy(),
+                                )
+                            )
                             prep_feet_y.append(feet_y)
                             prep_body_height.append(body_height)
                     else:
                         # Fase iniziale: accumuliamo abbastanza frame per una
                         # baseline stabile.
-                        pre_roll_frames.append(YoloPoseFrame(frame_index, normalized, kpts_conf, box))
+                        pre_roll_frames.append(
+                            YoloPoseFrame(
+                                frame_index,
+                                normalized,
+                                kpts_conf,
+                                box,
+                                timestamp_s=now,
+                                raw_keypoints_xy=kpts_xy.copy(),
+                            )
+                        )
                         prep_feet_y.append(feet_y)
                         prep_body_height.append(body_height)
                         lines.append("Resta fermo sul rialzo...")
                 else:
                     # Registrazione gia' partita: ogni frame valido viene usato
                     # per keyframe e feature.
-                    frames.append(YoloPoseFrame(frame_index, normalized, kpts_conf, box))
+                    frames.append(
+                        YoloPoseFrame(
+                            frame_index,
+                            normalized,
+                            kpts_conf,
+                            box,
+                            timestamp_s=now,
+                            raw_keypoints_xy=kpts_xy.copy(),
+                        )
+                    )
                     lines.append(f"Frame validi: {len(frames)}")
             else:
                 incomplete_frames += 1

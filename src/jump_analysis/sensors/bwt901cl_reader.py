@@ -129,22 +129,12 @@ class Bwt901clReader:
         self._thread = threading.Thread(target=target, name=f"{self.name}-reader", daemon=True)
         self._thread.start()
 
-    def stop(self, close_serial: bool = False) -> None:
-        """Stop collection.
-
-        By default the serial handle is not explicitly closed. On macOS,
-        closing Bluetooth SPP ports through the `witmotion`/pyserial stack can
-        block or leave HC-06 devices in a bad state for the next run. Letting
-        the process release the descriptor on exit is more reliable for this
-        project workflow.
-        """
+    def stop(self) -> None:
+        """Stop collection and close the serial port."""
 
         self._stop_event.set()
         if self._thread is not None:
             self._thread.join(timeout=2.0)
-        if not close_serial:
-            self._thread = None
-            return
         if self._imu is not None:
             # The third-party `witmotion.IMU.close()` stops only its receive
             # thread. On macOS Bluetooth SPP we also need to close the
@@ -227,8 +217,6 @@ class Bwt901clReader:
         """Return collected samples as an interpolable series."""
 
         frame = self.to_frame(start_timestamp_s=start_timestamp_s)
-        if start_timestamp_s is not None and "timestamp_s" in frame.columns:
-            frame = frame[frame["timestamp_s"] >= 0.0].reset_index(drop=True)
         if frame.empty:
             return None
         return ImuOrientationSeries(
@@ -241,10 +229,7 @@ class Bwt901clReader:
     def save_csv(self, path: str | Path, start_timestamp_s: float | None = None) -> None:
         """Save collected samples to CSV."""
 
-        frame = self.to_frame(start_timestamp_s=start_timestamp_s)
-        if start_timestamp_s is not None and "timestamp_s" in frame.columns:
-            frame = frame[frame["timestamp_s"] >= 0.0].reset_index(drop=True)
-        frame.to_csv(path, index=False)
+        self.to_frame(start_timestamp_s=start_timestamp_s).to_csv(path, index=False)
 
     def _witmotion_read_loop(self) -> None:
         """Continuously poll the official `witmotion` Python interface."""

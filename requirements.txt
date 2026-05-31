@@ -4,3 +4,5 @@ pandas
 scipy
 ultralytics
 lap
+pyserial
+witmotion

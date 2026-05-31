@@ -2,9 +2,9 @@ from __future__ import annotations
 
 """Validated drop-jump data collection.
 
-This script uses the same setup as the main workflow, but it does not compare
-the trial with the mocap dataset and does not run anomaly detection. It is used
-to collect clean data: if the jump protocol fails, no file is saved.
+Questo script usa lo stesso setup del workflow principale, ma non confronta la
+prova con il dataset mocap e non lancia anomaly detection. Serve per raccogliere
+dati puliti: se il protocollo del salto non passa, non salva nessun file.
 """
 
 import argparse
@@ -36,29 +36,29 @@ from jump_analysis.features.front_2d_features import (
     RIGHT_SHOULDER,
     distance,
 )
-from jump_analysis.feedback import AudioFeedback
+from jump_analysis.features.knee_orientation import estimate_knee_orientation_from_pose
 from jump_analysis.sensors import Bwt901clReader, load_imu_orientation_csv
 from jump_analysis.video import (
-    analyze_yolo_pose_frames,
     capture_yolo_pose_frames_with_open_capture,
+    extract_front_features_from_yolo_frames,
     run_floor_box_setup_with_open_capture,
 )
 from jump_analysis.video.yolo_video import YoloPoseFrame, estimate_person_height_px
 
 
 def ask_height_cm() -> float:
-    """Ask for height until the user enters a plausible value."""
+    """Chiede l'altezza finche' l'utente inserisce un valore plausibile."""
 
     while True:
-        raw = input("Enter your height in cm: ").strip().replace(",", ".")
+        raw = input("Inserisci la tua altezza in cm: ").strip().replace(",", ".")
         try:
             height_cm = float(raw)
         except ValueError:
-            print("Invalid value. Enter a number, for example 183.")
+            print("Valore non valido. Scrivi un numero, per esempio 183.")
             continue
         if 80.0 <= height_cm <= 250.0:
             return height_cm
-        print("Height out of range. Enter height in centimeters, for example 183.")
+        print("Altezza fuori range. Scrivi l'altezza in centimetri, per esempio 183.")
 
 
 def frame_rows(
@@ -69,7 +69,7 @@ def frame_rows(
     left_imu_series=None,
     right_imu_series=None,
 ) -> list[dict[str, float | int]]:
-    """Convert the full jump trajectory to frame-by-frame CSV rows."""
+    """Converte tutta la traiettoria del salto in righe CSV frame-by-frame."""
 
     rows: list[dict[str, float | int]] = []
     timestamps = np.array([frame.timestamp_s for frame in frames], dtype=float)
@@ -88,6 +88,8 @@ def frame_rows(
         hip_width_px = distance(keypoints_px[LEFT_HIP], keypoints_px[RIGHT_HIP])
         knee_width_px = distance(keypoints_px[LEFT_KNEE], keypoints_px[RIGHT_KNEE])
         ankle_width_px = distance(keypoints_px[LEFT_ANKLE], keypoints_px[RIGHT_ANKLE])
+        left_video = estimate_knee_orientation_from_pose(frame.keypoints_xy, "left")
+        right_video = estimate_knee_orientation_from_pose(frame.keypoints_xy, "right")
 
         row: dict[str, float | int] = {
             "valid_frame_index": valid_frame_index,
@@ -104,7 +106,12 @@ def frame_rows(
             "knee_width_m": knee_width_px * calibration.meters_per_pixel,
             "ankle_width_px": ankle_width_px,
             "ankle_width_m": ankle_width_px * calibration.meters_per_pixel,
-            # IMU ground truth (sensor physically measures yaw, so it is kept)
+            "left_video_pitch_deg": left_video.pitch_deg,
+            "left_video_roll_deg": left_video.roll_deg,
+            "left_video_yaw_deg": left_video.yaw_deg,
+            "right_video_pitch_deg": right_video.pitch_deg,
+            "right_video_roll_deg": right_video.roll_deg,
+            "right_video_yaw_deg": right_video.yaw_deg,
             "left_sensor_pitch_deg": float(left_sensor_data.loc[valid_frame_index, "pitch_deg"]),
             "left_sensor_roll_deg": float(left_sensor_data.loc[valid_frame_index, "roll_deg"]),
             "left_sensor_yaw_deg": float(left_sensor_data.loc[valid_frame_index, "yaw_deg"]),
@@ -129,7 +136,7 @@ def frame_rows(
 
 
 def _interpolate_sensor(sensor, relative_timestamps: np.ndarray) -> pd.DataFrame:
-    """Align an IMU series to video timestamps, or create empty columns."""
+    """Allinea una serie IMU ai timestamp video, oppure crea colonne vuote."""
 
     if sensor is None:
         return pd.DataFrame(
@@ -143,7 +150,7 @@ def _interpolate_sensor(sensor, relative_timestamps: np.ndarray) -> pd.DataFrame
 
 
 def calibration_metadata(calibration) -> dict[str, Any]:
-    """Extract JSON-serializable setup fields."""
+    """Estrae dal setup solo campi serializzabili in JSON."""
 
     return {
         "floor_body_height_px": calibration.floor_body_height_px,
@@ -163,6 +170,7 @@ def write_valid_trial(
     output_root: Path,
     trial_id: str,
     frames: list[YoloPoseFrame],
+    features: dict[str, float],
     metadata: dict[str, float | int],
     calibration,
     args: argparse.Namespace,
@@ -172,12 +180,13 @@ def write_valid_trial(
     left_reader: Bwt901clReader | None = None,
     right_reader: Bwt901clReader | None = None,
 ) -> Path:
-    """Save a valid trial in a dedicated folder."""
+    """Salva una prova valida in una cartella dedicata."""
 
     trial_dir = output_root / trial_id
     trial_dir.mkdir(parents=True, exist_ok=False)
 
     timeseries_path = trial_dir / "movement_timeseries.csv"
+    features_path = trial_dir / "front_2d_features.csv"
     metadata_path = trial_dir / "trial_metadata.json"
 
     first_video_timestamp = frames[0].timestamp_s if frames else None
@@ -191,13 +200,14 @@ def write_valid_trial(
             right_imu_series=right_imu_series,
         )
     ).to_csv(timeseries_path, index=False)
+    pd.DataFrame([{**metadata, **features}]).to_csv(features_path, index=False)
     if left_reader is not None:
         left_reader.save_csv(trial_dir / "left_bwt901cl_raw.csv", start_timestamp_s=first_video_timestamp)
     if right_reader is not None:
         right_reader.save_csv(trial_dir / "right_bwt901cl_raw.csv", start_timestamp_s=first_video_timestamp)
 
-    left_sample_count = _jump_sample_count(left_reader, first_video_timestamp)
-    right_sample_count = _jump_sample_count(right_reader, first_video_timestamp)
+    left_sample_count = len(left_reader.to_frame()) if left_reader is not None else None
+    right_sample_count = len(right_reader.to_frame()) if right_reader is not None else None
     if args.left_imu_port and args.right_imu_port:
         sensor_status = "live_serial_loaded"
     elif args.left_imu_csv and args.right_imu_csv:
@@ -220,6 +230,7 @@ def write_valid_trial(
         "setup_calibration": calibration_metadata(calibration),
         "files": {
             "movement_timeseries": timeseries_path.name,
+            "front_2d_features": features_path.name,
             "trial_metadata": metadata_path.name,
         },
         "sensor_ground_truth": {
@@ -238,25 +249,14 @@ def write_valid_trial(
     return trial_dir
 
 
-def _jump_sample_count(reader: Bwt901clReader | None, start_timestamp_s: float | None) -> int | None:
-    """Count live sensor samples saved from jump start onward."""
-
-    if reader is None:
-        return None
-    frame = reader.to_frame(start_timestamp_s=start_timestamp_s)
-    if start_timestamp_s is not None and "timestamp_s" in frame.columns:
-        frame = frame[frame["timestamp_s"] >= 0.0]
-    return len(frame)
-
-
 def main() -> None:
-    """Acquire valid trials and save pose/sensor time series without running a model."""
+    """Acquisisce una prova valida e salva dati pose/features senza modello."""
 
     parser = argparse.ArgumentParser(
         description="Collect a validated drop-jump trial without running reference comparison or anomaly detection."
     )
     parser.add_argument("--source", default="0", help="Webcam index or video path.")
-    parser.add_argument("--model", default="models/yolo26n-pose.pt", help="YOLO pose model.")
+    parser.add_argument("--model", default="yolo26n-pose.pt", help="YOLO pose model.")
     parser.add_argument("--seconds", type=float, default=8.0, help="Capture duration after drop detection.")
     parser.add_argument("--prepare-seconds", type=float, default=2.0, help="Seconds to stand still on the box before arming.")
     parser.add_argument("--max-wait-seconds", type=float, default=30.0, help="Maximum time to wait for the drop to start.")
@@ -277,11 +277,6 @@ def main() -> None:
     parser.add_argument("--imu-baud", type=int, default=115200, help="BWT901CL baud rate. Bluetooth default is 115200.")
     parser.add_argument("--configure-imu-angle-output", action="store_true", help="Send WIT commands to enable BWT901CL angle packets.")
     parser.add_argument(
-        "--require-imu",
-        action="store_true",
-        help="Reject the trial if live IMU ports are configured but no IMU samples are captured.",
-    )
-    parser.add_argument(
         "--imu-stagger-start-seconds",
         type=float,
         default=1.0,
@@ -293,20 +288,19 @@ def main() -> None:
     parser.add_argument("--no-show", action="store_true", help="Do not show capture window.")
     args = parser.parse_args()
     setup_audio = args.audio or not args.no_audio
-    feedback = AudioFeedback(enabled=setup_audio)
 
     height_cm = args.height_cm if args.height_cm is not None else ask_height_cm()
     source = int(args.source) if str(args.source).isdigit() else args.source
 
-    print("Starting valid trial collection.")
-    print("A trial is saved only if setup and drop-jump protocol validation pass.")
+    print("Avvio acquisizione prova valida.")
+    print("La prova verra' salvata solo se setup e protocollo drop jump passano.")
     left_reader = None
     right_reader = None
     left_live_series = None
     right_live_series = None
 
     if args.left_imu_port and args.right_imu_port:
-        print("Live BWT901CL sensors: reading from serial/Bluetooth ports.")
+        print("Sensori BWT901CL live: lettura da porte seriali/Bluetooth.")
         left_reader = Bwt901clReader(
             args.left_imu_port,
             baud_rate=args.imu_baud,
@@ -322,9 +316,9 @@ def main() -> None:
             backend="witmotion",
         )
     elif args.left_imu_csv and args.right_imu_csv:
-        print("IMU CSV files provided: they will be interpolated onto video timestamps.")
+        print("CSV sensori IMU forniti: verranno interpolati sui timestamp video.")
     else:
-        print("Incomplete IMU inputs: ground-truth columns will be saved empty.")
+        print("CSV sensori IMU non completi: le colonne ground truth verranno salvate vuote.")
 
     model = YOLO(args.model)
     cap = cv2.VideoCapture(source)
@@ -332,10 +326,18 @@ def main() -> None:
         raise RuntimeError(f"Cannot open video source: {source}")
 
     try:
+        calibration = run_floor_box_setup_with_open_capture(
+            cap,
+            model,
+            height_cm=height_cm,
+            show=not args.no_show,
+            audio=setup_audio,
+            auto_detect_box=not args.manual_box_setup,
+        )
         try:
             if left_reader is not None and right_reader is not None:
                 if args.configure_imu_angle_output:
-                    print("Warning: configure sensors one at a time if macOS loses the Bluetooth stream.")
+                    print("Attenzione: configura i due sensori uno alla volta se macOS perde la lettura Bluetooth.")
                 left_reader.start()
                 if args.imu_stagger_start_seconds > 0:
                     time.sleep(args.imu_stagger_start_seconds)
@@ -343,24 +345,10 @@ def main() -> None:
 
             trial_number = 0
             while args.trials == 0 or trial_number < args.trials:
-                raw = input("Press ENTER to start setup for the next jump, or Q to quit: ").strip().lower()
-                if raw == "q":
-                    break
-
-                try:
-                    calibration = run_floor_box_setup_with_open_capture(
-                        cap,
-                        model,
-                        height_cm=height_cm,
-                        show=not args.no_show,
-                        audio=setup_audio,
-                        feedback=feedback,
-                        auto_detect_box=not args.manual_box_setup,
-                    )
-                except RuntimeError as exc:
-                    print(f"Setup failed: {exc}")
-                    print("Trial NOT saved. Press ENTER to try setup again.")
-                    continue
+                if args.trials == 0 or args.trials > 1:
+                    raw = input("Premi INVIO per acquisire un salto, oppure Q per uscire: ").strip().lower()
+                    if raw == "q":
+                        break
 
                 if left_reader is not None:
                     left_reader.clear()
@@ -369,24 +357,18 @@ def main() -> None:
 
                 left_live_series = None
                 right_live_series = None
-                try:
-                    frames = capture_yolo_pose_frames_with_open_capture(
-                        cap,
-                        model,
-                        args.seconds,
-                        shoulder_width_m=calibration.measured_shoulder_width_m,
-                        show=not args.no_show,
-                        prepare_seconds=args.prepare_seconds,
-                        min_drop_ratio=args.min_drop_ratio,
-                        max_wait_seconds=args.max_wait_seconds,
-                        feedback=feedback,
-                    )
-                except RuntimeError as exc:
-                    print(f"Capture failed: {exc}")
-                    print("Trial NOT saved. Press ENTER to try again.")
-                    continue
+                frames = capture_yolo_pose_frames_with_open_capture(
+                    cap,
+                    model,
+                    args.seconds,
+                    shoulder_width_m=calibration.measured_shoulder_width_m,
+                    show=not args.no_show,
+                    prepare_seconds=args.prepare_seconds,
+                    min_drop_ratio=args.min_drop_ratio,
+                    max_wait_seconds=args.max_wait_seconds,
+                )
 
-                metadata = analyze_yolo_pose_frames(frames)
+                features, metadata = extract_front_features_from_yolo_frames(frames)
                 first_video_timestamp = frames[0].timestamp_s if frames else None
                 if first_video_timestamp is not None:
                     if left_reader is not None:
@@ -400,21 +382,9 @@ def main() -> None:
 
                 trial_number += 1
                 if not metadata["protocol_passed"]:
-                    print("Invalid trial: data NOT saved.")
-                    print("Try again: start on the box, land with both feet, and immediately perform the second jump.")
+                    print("Prova non valida: dati NON salvati.")
+                    print("Riprova: parti dal rialzo, atterra a due piedi e fai subito il secondo salto.")
                     continue
-
-                if left_reader is not None and right_reader is not None:
-                    left_samples = _jump_sample_count(left_reader, first_video_timestamp)
-                    right_samples = _jump_sample_count(right_reader, first_video_timestamp)
-                    if not left_samples or not right_samples:
-                        print("Warning: live IMU samples are missing for this jump.")
-                        print(f"Left IMU samples after jump start: {left_samples or 0}")
-                        print(f"Right IMU samples after jump start: {right_samples or 0}")
-                        if args.require_imu:
-                            print("Invalid sensor capture: data NOT saved because --require-imu is enabled.")
-                            print("Check that both sensors are streaming before collecting the next jump.")
-                            continue
 
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 safe_participant = "".join(char if char.isalnum() or char in "-_" else "_" for char in args.participant_id)
@@ -423,6 +393,7 @@ def main() -> None:
                     Path(args.output_dir),
                     trial_id,
                     frames,
+                    features,
                     metadata,
                     calibration,
                     args,
@@ -432,12 +403,12 @@ def main() -> None:
                     left_reader=left_reader,
                     right_reader=right_reader,
                 )
-                print(f"Valid trial saved in: {trial_dir}")
+                print(f"Prova valida salvata in: {trial_dir}")
         finally:
             if left_reader is not None:
-                left_reader.stop(close_serial=False)
+                left_reader.stop()
             if right_reader is not None:
-                right_reader.stop(close_serial=False)
+                right_reader.stop()
     finally:
         cap.release()
         if not args.no_show:
