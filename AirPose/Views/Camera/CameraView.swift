@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 struct CameraView: View {
@@ -178,6 +179,10 @@ struct CameraView: View {
             VStack(alignment: .leading, spacing: 16) {
                 SectionHeader("Capture Actions", subtitle: "Record from the camera preview, then manage the clip here.")
 
+                athleteAssignmentSection
+
+                Divider()
+
                 VStack(spacing: 12) {
                     PrimaryActionButton(
                         title: "Send for Analysis",
@@ -222,6 +227,70 @@ struct CameraView: View {
                     Text("Desktop mode uses imported videos instead of live camera recording.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private var athleteAssignmentSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Athlete for This Jump")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            Picker("Athlete Source", selection: $viewModel.athleteSelection) {
+                ForEach(CameraViewModel.AthleteSelection.allCases) { selection in
+                    Text(selection.rawValue).tag(selection)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            if viewModel.athleteSelection == .accountProfile {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(viewModel.accountProfile.displayName)
+                        .font(.headline)
+
+                    Text(viewModel.accountProfile.summaryText)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color.airPoseTileFill)
+                )
+            } else {
+                VStack(alignment: .leading, spacing: 12) {
+                    athleteField("Name", text: $viewModel.guestAthleteProfile.name, textInputAutocapitalization: .words)
+                    athleteField("Age", text: $viewModel.guestAthleteProfile.age, keyboardType: .numberPad, textInputAutocapitalization: .never)
+                    athleteField(settingsStore.settings.units.heightLabel, text: $viewModel.guestAthleteProfile.height, keyboardType: .decimalPad, textInputAutocapitalization: .never)
+                    athleteField(settingsStore.settings.units.weightLabel, text: $viewModel.guestAthleteProfile.weight, keyboardType: .decimalPad, textInputAutocapitalization: .never)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        athleteFieldLabel("Dominant Leg")
+
+                        Picker("Dominant Leg", selection: $viewModel.guestAthleteProfile.dominantLeg) {
+                            ForEach(DominantLeg.allCases) { leg in
+                                Text(leg.rawValue).tag(leg)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                    }
+
+                    athleteField("Sport", text: $viewModel.guestAthleteProfile.sport, textInputAutocapitalization: .words)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        athleteFieldLabel("Experience Level")
+
+                        Picker("Experience Level", selection: $viewModel.guestAthleteProfile.experienceLevel) {
+                            ForEach(ExperienceLevel.allCases) { level in
+                                Text(level.rawValue).tag(level)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                    }
                 }
             }
         }
@@ -442,5 +511,37 @@ struct CameraView: View {
 
     private func isCompactPhonePreview(for size: CGSize) -> Bool {
         !AppPlatform.isDesktopDemo && size.height > size.width
+    }
+
+    private func athleteField(
+        _ title: String,
+        text: Binding<String>,
+        keyboardType: UIKeyboardType = .default,
+        textInputAutocapitalization: TextInputAutocapitalization = .sentences
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            athleteFieldLabel(title)
+
+            TextField(title, text: text)
+                .keyboardType(keyboardType)
+                .textInputAutocapitalization(textInputAutocapitalization)
+                .autocorrectionDisabled()
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color.airPoseTileFill)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(Color.airPoseCardStroke, lineWidth: 1)
+                }
+        }
+    }
+
+    private func athleteFieldLabel(_ title: String) -> some View {
+        Text(title)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(Color.airPoseSecondaryText)
     }
 }

@@ -8,6 +8,23 @@ struct UserProfile: Codable, Equatable {
     var dominantLeg: DominantLeg = .right
     var sport: String = ""
     var experienceLevel: ExperienceLevel = .intermediate
+
+    var trimmedName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var displayName: String {
+        trimmedName.isEmpty ? "Unnamed Athlete" : trimmedName
+    }
+
+    var summaryText: String {
+        let sport = sport.trimmingCharacters(in: .whitespacesAndNewlines)
+        let level = experienceLevel.rawValue
+        if sport.isEmpty {
+            return "\(level) athlete"
+        }
+        return "\(level) \(sport) athlete"
+    }
 }
 
 enum DominantLeg: String, Codable, CaseIterable, Identifiable {

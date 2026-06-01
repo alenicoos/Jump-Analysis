@@ -69,7 +69,14 @@ struct JumpsView: View {
     private var sortBar: some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 14) {
-                SectionHeader("Sort & Filter", subtitle: "Placeholder controls ready for more advanced filtering later.")
+                SectionHeader("Sort & Filter", subtitle: "Filter saved jumps by athlete and sort the results.")
+
+                Picker("Athlete", selection: $viewModel.selectedAthleteFilter) {
+                    ForEach(viewModel.athleteFilters, id: \.self) { athlete in
+                        Text(athlete).tag(athlete)
+                    }
+                }
+                .pickerStyle(.menu)
 
                 Picker("Sort By", selection: $viewModel.sortOption) {
                     ForEach(JumpsViewModel.SortOption.allCases) { option in

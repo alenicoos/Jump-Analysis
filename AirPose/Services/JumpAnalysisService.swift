@@ -28,7 +28,12 @@ private struct BackendErrorPayload: Decodable {
 }
 
 struct JumpAnalysisService {
-    func analyzeJump(videoURL: URL?, settings: AppSettings, athleteHeightCm: Double?) async throws -> JumpAnalysisResponse {
+    func analyzeJump(
+        videoURL: URL?,
+        recordingStartedAt: Date?,
+        settings: AppSettings,
+        athleteHeightCm: Double?
+    ) async throws -> JumpAnalysisResponse {
         if settings.mockModeEnabled {
             return mockResponse()
         }
@@ -56,6 +61,7 @@ struct JumpAnalysisService {
             videoData: videoData,
             filename: videoURL.lastPathComponent,
             heightCm: athleteHeightCm,
+            recordingStartedAt: recordingStartedAt,
             boundary: boundary
         )
 
@@ -80,11 +86,24 @@ struct JumpAnalysisService {
         }
     }
 
-    private func makeMultipartBody(videoData: Data, filename: String, heightCm: Double, boundary: String) -> Data {
+    private func makeMultipartBody(
+        videoData: Data,
+        filename: String,
+        heightCm: Double,
+        recordingStartedAt: Date?,
+        boundary: String
+    ) -> Data {
         var body = Data()
         body.append("--\(boundary)\r\n")
         body.append("Content-Disposition: form-data; name=\"height_cm\"\r\n\r\n")
         body.append("\(heightCm)\r\n")
+        if let recordingStartedAt {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            body.append("--\(boundary)\r\n")
+            body.append("Content-Disposition: form-data; name=\"recording_started_at\"\r\n\r\n")
+            body.append("\(formatter.string(from: recordingStartedAt))\r\n")
+        }
         body.append("--\(boundary)\r\n")
         body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n")
         body.append("Content-Type: video/quicktime\r\n\r\n")
@@ -97,6 +116,11 @@ struct JumpAnalysisService {
         JumpAnalysisResponse(
             timestamp: .now,
             protocolPassed: Bool.random(),
+            protocolChecks: [
+                .init(name: "drop_started_from_height", passed: true, value: 0.23, threshold: 0.15),
+                .init(name: "two_foot_contact", passed: false, value: 0.18, threshold: 0.10),
+                .init(name: "second_jump", passed: true, value: 0.21, threshold: 0.12),
+            ],
             prediction: Bool.random() ? "normal" : "anomaly",
             anomalyScore: Double.random(in: 1.2...5.8),
             outlierFeatureCount: Int.random(in: 1...9),
@@ -117,7 +141,8 @@ struct JumpAnalysisService {
             maxKneeFlexionLeftKneeAngleDeg: Double.random(in: 98...132),
             maxKneeFlexionRightKneeAngleDeg: Double.random(in: 98...132),
             landingAsymmetryRatio: Double.random(in: 0.02...0.18),
-            kneeAsymmetryRatio: Double.random(in: 0.01...0.14)
+            kneeAsymmetryRatio: Double.random(in: 0.01...0.14),
+            imuRecording: nil
         )
     }
 

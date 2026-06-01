@@ -12,25 +12,39 @@ final class JumpsViewModel: ObservableObject {
     }
 
     @Published var sortOption: SortOption = .date
+    @Published var selectedAthleteFilter: String = "All Athletes"
+    @Published private(set) var athleteFilters: [String] = ["All Athletes"]
     @Published private(set) var sortedJumps: [Jump] = []
 
     private let jumpStore: JumpStore
     private let cloudSyncCoordinator: CloudSyncCoordinator
     private var cancellables = Set<AnyCancellable>()
 
+    static let allAthletesFilter = "All Athletes"
+
     init(jumpStore: JumpStore, cloudSyncCoordinator: CloudSyncCoordinator) {
         self.jumpStore = jumpStore
         self.cloudSyncCoordinator = cloudSyncCoordinator
 
-        Publishers.CombineLatest($sortOption, jumpStore.$jumps)
-            .map { option, jumps in
+        jumpStore.$jumps
+            .map { jumps in
+                let names = Set(jumps.map { $0.athleteProfile?.displayName ?? "Unnamed Athlete" })
+                return [Self.allAthletesFilter] + names.sorted()
+            }
+            .assign(to: &$athleteFilters)
+
+        Publishers.CombineLatest3($sortOption, $selectedAthleteFilter, jumpStore.$jumps)
+            .map { option, athleteFilter, jumps in
+                let filteredJumps = athleteFilter == Self.allAthletesFilter
+                    ? jumps
+                    : jumps.filter { ($0.athleteProfile?.displayName ?? "Unnamed Athlete") == athleteFilter }
                 switch option {
                 case .date:
-                    jumps.sorted { $0.date > $1.date }
+                    return filteredJumps.sorted { $0.date > $1.date }
                 case .anomalyScore:
-                    jumps.sorted { $0.anomalyScore > $1.anomalyScore }
+                    return filteredJumps.sorted { $0.anomalyScore > $1.anomalyScore }
                 case .protocolStatus:
-                    jumps.sorted { lhs, rhs in
+                    return filteredJumps.sorted { lhs, rhs in
                         if lhs.protocolPassed == rhs.protocolPassed {
                             return lhs.date > rhs.date
                         }
@@ -39,6 +53,17 @@ final class JumpsViewModel: ObservableObject {
                 }
             }
             .assign(to: &$sortedJumps)
+
+        $selectedAthleteFilter
+            .combineLatest($athleteFilters)
+            .sink { [weak self] selectedFilter, filters in
+                guard let self else { return }
+                guard filters.contains(selectedFilter) else {
+                    self.selectedAthleteFilter = Self.allAthletesFilter
+                    return
+                }
+            }
+            .store(in: &cancellables)
     }
 
     func delete(_ jump: Jump) {

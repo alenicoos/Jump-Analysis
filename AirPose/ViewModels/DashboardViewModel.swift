@@ -32,8 +32,4 @@ final class DashboardViewModel: ObservableObject {
         guard !jumps.isEmpty else { return 0 }
         return jumps.map(\.anomalyScore).reduce(0, +) / Double(jumps.count)
     }
-
-    var recentJumps: [Jump] {
-        Array(jumps.sorted { $0.date > $1.date }.prefix(3))
-    }
 }

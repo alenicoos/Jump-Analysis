@@ -11,6 +11,17 @@ extension Double {
         formatted(.number.precision(.fractionLength(1)))
     }
 
+    var airPoseProtocolValueString: String {
+        let magnitude = abs(self)
+        if magnitude >= 10 {
+            return formatted(.number.precision(.fractionLength(1)))
+        }
+        if magnitude >= 1 {
+            return formatted(.number.precision(.fractionLength(2)))
+        }
+        return formatted(.number.precision(.fractionLength(3)))
+    }
+
     var airPoseCentimeterString: String {
         "\(airPoseOneDecimalString) cm"
     }

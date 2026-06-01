@@ -77,6 +77,7 @@ private enum JumpPostureInterpretationScript {
       3. `crop_length_frames` = frame distance between those keyframes
     - The model compares those features against a converted 183-athlete motion-capture reference dataset.
     - `worst_feature` is the feature with the largest robust deviation from that reference.
+    - Optional WitMotion recordings come from ankle-mounted IMUs. When IMU acceleration, angular velocity, or IMU orientation values are available, treat those as the authoritative source for those quantities instead of inferring them from video.
 
     Important interpretation limits:
     - This is a frontal 2D system, not a side-view or 3D system.
@@ -204,8 +205,31 @@ struct LLMFeedbackService {
         }
 
         let instructions = """
-        You are a jump performance coach writing athlete-facing posture feedback. Write one detailed paragraph of 4 to 6 sentences in plain language, do not mention being an AI model, and do not make medical claims. Focus on how the jump was performed from a posture and alignment point of view: trunk or shoulder position if supported by the feature names, knee tracking and alignment, left-right symmetry at initial contact and maximum flexion, and ankle or foot control if the strongest deviation suggests it. Translate the analytics into clear movement language such as knees collapsing inward, one side absorbing more load, torso drifting too far forward, or ankles looking unstable, but only when the provided metrics or feature names support that interpretation. Use the numeric values naturally to justify the explanation, compare the movement with the AirPose reference dataset, and finish with a concrete coaching correction.
+        You are a jump performance coach writing athlete-facing posture feedback. Write one detailed paragraph of 4 to 6 sentences in plain language, do not mention being an AI model, and do not make medical claims. Focus on how the jump was performed from a posture and alignment point of view: trunk or shoulder position if supported by the feature names, knee tracking and alignment, left-right symmetry at initial contact and maximum flexion, and ankle or foot control if the strongest deviation suggests it. Translate the analytics into clear movement language such as knees collapsing inward, one side absorbing more load, torso drifting to one side, or ankles looking unstable, but only when the provided metrics or feature names support that interpretation. Use the numeric values naturally to justify the explanation, compare the movement with the AirPose reference dataset, and finish with a concrete coaching correction. If ankle IMU data is present, use it as the authoritative source for acceleration, angular velocity, and ankle-mounted orientation observations instead of inferring those quantities from the video.
         """
+
+        let imuRecordingBlock: String = {
+            guard let imu = analysis.imuRecording else {
+                return "- ankle IMU recording: none matched"
+            }
+
+            let deviceLines = imu.deviceSummaries.map { device in
+                """
+                - IMU device \(device.deviceName): samples=\(device.sampleCount), duration_seconds=\(device.durationSeconds), mean_acceleration_g=\(device.meanAccelerationG?.description ?? "n/a"), peak_acceleration_g=\(device.peakAccelerationG?.description ?? "n/a"), mean_angular_velocity_dps=\(device.meanAngularVelocityDps?.description ?? "n/a"), peak_angular_velocity_dps=\(device.peakAngularVelocityDps?.description ?? "n/a"), mean_roll_deg=\(device.meanRollDeg?.description ?? "n/a"), mean_pitch_deg=\(device.meanPitchDeg?.description ?? "n/a"), mean_yaw_deg=\(device.meanYawDeg?.description ?? "n/a"), battery_start_percent=\(device.batteryStartPercent?.description ?? "n/a"), battery_end_percent=\(device.batteryEndPercent?.description ?? "n/a")
+                """
+            }.joined(separator: "\n")
+
+            return """
+            - ankle IMU recording matched: true
+            - recording path: \(imu.matchedFile)
+            - recording start: \(imu.recordingStartTime)
+            - recording end: \(imu.recordingEndTime)
+            - recording offset seconds vs analysis request: \(imu.timeOffsetSeconds)
+            - device count: \(imu.deviceCount)
+            - total IMU samples: \(imu.totalSamples)
+            \(deviceLines)
+            """
+        }()
 
         let input = """
         \(datasetContext)
@@ -233,6 +257,7 @@ struct LLMFeedbackService {
         - max flexion right knee angle deg: \(analysis.maxKneeFlexionRightKneeAngleDeg)
         - landing asymmetry ratio: \(analysis.landingAsymmetryRatio)
         - knee asymmetry ratio: \(analysis.kneeAsymmetryRatio)
+        \(imuRecordingBlock)
         - backend summary: \(analysis.summary)
 
         Explain what these metrics mean in words for the athlete, with posture quality as the main focus.

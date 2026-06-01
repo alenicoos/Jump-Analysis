@@ -1,10 +1,87 @@
 import Foundation
 
+struct JumpProtocolCheck: Codable, Equatable, Identifiable {
+    let name: String
+    let passed: Bool
+    let value: Double
+    let threshold: Double
+
+    var id: String { name }
+
+    var title: String {
+        switch name {
+        case "drop_started_from_height":
+            return "Started From Box"
+        case "two_foot_contact":
+            return "Two-Foot Landing"
+        case "second_jump":
+            return "Rebound Jump"
+        default:
+            return name.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+    }
+
+    var detailText: String {
+        switch name {
+        case "drop_started_from_height":
+            return "Drop \(value.airPoseProtocolValueString) vs threshold \(threshold.airPoseProtocolValueString)"
+        case "two_foot_contact":
+            return "Ankle difference \(value.airPoseProtocolValueString) vs max \(threshold.airPoseProtocolValueString)"
+        case "second_jump":
+            return "Lift \(value.airPoseProtocolValueString) vs threshold \(threshold.airPoseProtocolValueString)"
+        default:
+            return "Value \(value.airPoseProtocolValueString) vs threshold \(threshold.airPoseProtocolValueString)"
+        }
+    }
+}
+
+struct JumpAthleteProfile: Codable, Equatable {
+    let name: String
+    let age: String
+    let height: String
+    let weight: String
+    let dominantLeg: DominantLeg
+    let sport: String
+    let experienceLevel: ExperienceLevel
+    let source: Source
+
+    enum Source: String, Codable {
+        case accountProfile
+        case guestAthlete
+    }
+
+    init(profile: UserProfile, source: Source) {
+        name = profile.name
+        age = profile.age
+        height = profile.height
+        weight = profile.weight
+        dominantLeg = profile.dominantLeg
+        sport = profile.sport
+        experienceLevel = profile.experienceLevel
+        self.source = source
+    }
+
+    var displayName: String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Unnamed Athlete" : trimmed
+    }
+
+    var summaryText: String {
+        let trimmedSport = sport.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedSport.isEmpty {
+            return experienceLevel.rawValue
+        }
+        return "\(experienceLevel.rawValue) \(trimmedSport)"
+    }
+}
+
 struct Jump: Identifiable, Codable, Equatable {
     let id: UUID
     let date: Date
     let videoURL: URL?
+    let athleteProfile: JumpAthleteProfile?
     let protocolPassed: Bool
+    let protocolChecks: [JumpProtocolCheck]
     let prediction: String
     let anomalyScore: Double
     let outlierFeatureCount: Int
@@ -32,7 +109,9 @@ struct Jump: Identifiable, Codable, Equatable {
         id: UUID = UUID(),
         date: Date,
         videoURL: URL?,
+        athleteProfile: JumpAthleteProfile?,
         protocolPassed: Bool,
+        protocolChecks: [JumpProtocolCheck] = [],
         prediction: String,
         anomalyScore: Double,
         outlierFeatureCount: Int,
@@ -59,7 +138,9 @@ struct Jump: Identifiable, Codable, Equatable {
         self.id = id
         self.date = date
         self.videoURL = videoURL
+        self.athleteProfile = athleteProfile
         self.protocolPassed = protocolPassed
+        self.protocolChecks = protocolChecks
         self.prediction = prediction
         self.anomalyScore = anomalyScore
         self.outlierFeatureCount = outlierFeatureCount
@@ -96,6 +177,10 @@ struct Jump: Identifiable, Codable, Equatable {
         prediction.caseInsensitiveCompare("normal") == .orderedSame
     }
 
+    var failedProtocolChecks: [JumpProtocolCheck] {
+        protocolChecks.filter { !$0.passed }
+    }
+
     var displayPrediction: String {
         isNormalPrediction ? "Normal" : prediction.capitalized
     }
@@ -104,6 +189,14 @@ struct Jump: Identifiable, Codable, Equatable {
         JumpAnalysisResponse(
             timestamp: date,
             protocolPassed: protocolPassed,
+            protocolChecks: protocolChecks.map {
+                JumpAnalysisResponse.ProtocolCheckSummary(
+                    name: $0.name,
+                    passed: $0.passed,
+                    value: $0.value,
+                    threshold: $0.threshold
+                )
+            },
             prediction: prediction,
             anomalyScore: anomalyScore,
             outlierFeatureCount: outlierFeatureCount,
@@ -124,7 +217,8 @@ struct Jump: Identifiable, Codable, Equatable {
             maxKneeFlexionLeftKneeAngleDeg: maxKneeFlexionLeftKneeAngleDeg,
             maxKneeFlexionRightKneeAngleDeg: maxKneeFlexionRightKneeAngleDeg,
             landingAsymmetryRatio: landingAsymmetryRatio,
-            kneeAsymmetryRatio: kneeAsymmetryRatio
+            kneeAsymmetryRatio: kneeAsymmetryRatio,
+            imuRecording: nil
         )
     }
 
@@ -133,7 +227,9 @@ struct Jump: Identifiable, Codable, Equatable {
             id: id,
             date: date,
             videoURL: videoURL,
+            athleteProfile: athleteProfile,
             protocolPassed: protocolPassed,
+            protocolChecks: protocolChecks,
             prediction: prediction,
             anomalyScore: anomalyScore,
             outlierFeatureCount: outlierFeatureCount,
@@ -164,7 +260,9 @@ struct Jump: Identifiable, Codable, Equatable {
             id: id,
             date: date,
             videoURL: videoURL,
+            athleteProfile: athleteProfile,
             protocolPassed: protocolPassed,
+            protocolChecks: protocolChecks,
             prediction: prediction,
             anomalyScore: anomalyScore,
             outlierFeatureCount: outlierFeatureCount,
@@ -194,7 +292,9 @@ struct Jump: Identifiable, Codable, Equatable {
         case id
         case date
         case videoURL
+        case athleteProfile
         case protocolPassed
+        case protocolChecks
         case prediction
         case anomalyScore
         case outlierFeatureCount
@@ -230,7 +330,9 @@ struct Jump: Identifiable, Codable, Equatable {
         id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         date = try container.decodeIfPresent(Date.self, forKey: .date) ?? .now
         videoURL = try container.decodeIfPresent(URL.self, forKey: .videoURL)
+        athleteProfile = try container.decodeIfPresent(JumpAthleteProfile.self, forKey: .athleteProfile)
         protocolPassed = try container.decodeIfPresent(Bool.self, forKey: .protocolPassed) ?? true
+        protocolChecks = try container.decodeIfPresent([JumpProtocolCheck].self, forKey: .protocolChecks) ?? []
         prediction = try container.decodeIfPresent(String.self, forKey: .prediction) ?? "legacy"
         anomalyScore = try container.decodeIfPresent(Double.self, forKey: .anomalyScore) ?? 0
         outlierFeatureCount = try container.decodeIfPresent(Int.self, forKey: .outlierFeatureCount) ?? 0
@@ -262,7 +364,9 @@ struct Jump: Identifiable, Codable, Equatable {
         try container.encode(id, forKey: .id)
         try container.encode(date, forKey: .date)
         try container.encodeIfPresent(videoURL, forKey: .videoURL)
+        try container.encodeIfPresent(athleteProfile, forKey: .athleteProfile)
         try container.encode(protocolPassed, forKey: .protocolPassed)
+        try container.encode(protocolChecks, forKey: .protocolChecks)
         try container.encode(prediction, forKey: .prediction)
         try container.encode(anomalyScore, forKey: .anomalyScore)
         try container.encode(outlierFeatureCount, forKey: .outlierFeatureCount)

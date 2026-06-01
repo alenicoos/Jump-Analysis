@@ -17,6 +17,12 @@ struct JumpCardView: View {
                         Text(jump.date.airPoseMediumString)
                             .font(.headline)
 
+                        if let athleteProfile = jump.athleteProfile {
+                            Text(athleteProfile.displayName)
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(Color.airPoseSecondaryText)
+                        }
+
                         Text(jump.displayPrediction)
                             .font(.title3.weight(.semibold))
                             .foregroundStyle(LinearGradient.airPoseBluePurple)
@@ -36,6 +42,26 @@ struct JumpCardView: View {
                     MetricTile(title: "IC Knee", value: jump.averageInitialContactKneeAngleDeg.airPoseDegreeString, systemImage: "angle")
                     MetricTile(title: "KF Knee", value: jump.averageMaxKneeFlexionKneeAngleDeg.airPoseDegreeString, systemImage: "figure.strengthtraining.traditional")
                     MetricTile(title: "Landing Asym.", value: jump.landingAsymmetryRatio.airPoseRatioString, systemImage: "arrow.left.and.right")
+                }
+
+                if !jump.protocolPassed, !jump.failedProtocolChecks.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Protocol Checks")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Color.airPosePrimaryText)
+
+                        ForEach(jump.failedProtocolChecks) { check in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Failed: \(check.title)")
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(.red)
+                                Text(check.detailText)
+                                    .font(.footnote)
+                                    .foregroundStyle(Color.airPoseSecondaryText)
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
                 if showsFeedback {

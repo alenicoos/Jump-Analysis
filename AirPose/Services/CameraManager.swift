@@ -8,6 +8,7 @@ final class CameraManager: NSObject, ObservableObject {
     @Published var isRecording = false
     @Published var isPreparingRecording = false
     @Published var recordedVideoURL: URL?
+    @Published var recordedVideoStartedAt: Date?
     @Published var errorMessage: String?
     @Published var currentCameraPosition: AVCaptureDevice.Position = .back
 
@@ -96,6 +97,7 @@ final class CameraManager: NSObject, ObservableObject {
             DispatchQueue.main.async {
                 self.isPreparingRecording = true
                 self.recordedVideoURL = nil
+                self.recordedVideoStartedAt = nil
                 self.errorMessage = nil
             }
             self.movieOutput.startRecording(to: outputURL, recordingDelegate: self)
@@ -133,13 +135,20 @@ final class CameraManager: NSObject, ObservableObject {
             try FileManager.default.removeItem(at: destinationURL)
         }
         try FileManager.default.copyItem(at: selectedURL, to: destinationURL)
+        let recordingStartedAt = Self.recordingTimestamp(for: selectedURL) ?? Self.recordingTimestamp(for: destinationURL)
 
         DispatchQueue.main.async {
             self.isPreparingRecording = false
             self.isRecording = false
             self.recordedVideoURL = destinationURL
+            self.recordedVideoStartedAt = recordingStartedAt
             self.errorMessage = nil
         }
+    }
+
+    private static func recordingTimestamp(for url: URL) -> Date? {
+        let values = try? url.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey])
+        return values?.creationDate ?? values?.contentModificationDate
     }
 
     private func stopRecordingIfNeededAfterStart() {
@@ -310,6 +319,7 @@ extension CameraManager: AVCaptureFileOutputRecordingDelegate {
         DispatchQueue.main.async {
             self.isPreparingRecording = false
             self.isRecording = true
+            self.recordedVideoStartedAt = Date()
         }
         stopRecordingIfNeededAfterStart()
     }
@@ -325,6 +335,9 @@ extension CameraManager: AVCaptureFileOutputRecordingDelegate {
                 self.errorMessage = error.localizedDescription
             } else {
                 self.recordedVideoURL = outputFileURL
+                if self.recordedVideoStartedAt == nil {
+                    self.recordedVideoStartedAt = Date()
+                }
             }
         }
     }

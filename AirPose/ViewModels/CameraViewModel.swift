@@ -3,6 +3,13 @@ import Foundation
 
 @MainActor
 final class CameraViewModel: ObservableObject {
+    enum AthleteSelection: String, CaseIterable, Identifiable {
+        case accountProfile = "My Profile"
+        case guestAthlete = "Other Athlete"
+
+        var id: String { rawValue }
+    }
+
     enum AnalysisState: Equatable {
         case idle
         case uploading
@@ -10,6 +17,8 @@ final class CameraViewModel: ObservableObject {
     }
 
     @Published var analysisState: AnalysisState = .idle
+    @Published var athleteSelection: AthleteSelection = .accountProfile
+    @Published var guestAthleteProfile = UserProfile()
     @Published var errorMessage: String?
     @Published var successMessage: String?
     @Published var latestJump: Jump?
@@ -63,6 +72,14 @@ final class CameraViewModel: ObservableObject {
         recordedVideoURL != nil || settingsStore.settings.mockModeEnabled
     }
 
+    var accountProfile: UserProfile {
+        profileStore.profile
+    }
+
+    var selectedAthleteProfile: UserProfile {
+        athleteSelection == .accountProfile ? profileStore.profile : guestAthleteProfile
+    }
+
     func onAppear() {
         guard AppPlatform.supportsLiveCameraCapture else { return }
         cameraManager.requestPermissionsAndConfigureIfNeeded()
@@ -107,12 +124,17 @@ final class CameraViewModel: ObservableObject {
             let settings = settingsStore.settings
             let analysis = try await analysisService.analyzeJump(
                 videoURL: recordedVideoURL,
+                recordingStartedAt: cameraManager.recordedVideoStartedAt,
                 settings: settings,
                 athleteHeightCm: athleteHeightCm(for: settings.units)
             )
 
             let narration = await narratedSummary(for: analysis, settings: settings)
-            let jump = makeJump(from: analysis, summary: narration.summary, llmNarratedSummary: narration.didUseLLM)
+            let jump = makeJump(
+                from: analysis,
+                summary: narration.summary,
+                llmNarratedSummary: narration.didUseLLM
+            )
 
             jumpStore.add(jump)
             cloudSyncCoordinator.saveJump(jump)
@@ -146,10 +168,23 @@ final class CameraViewModel: ObservableObject {
     }
 
     private func makeJump(from analysis: JumpAnalysisResponse, summary: String, llmNarratedSummary: Bool) -> Jump {
-        Jump(
+        let athleteProfile = JumpAthleteProfile(
+            profile: selectedAthleteProfile,
+            source: athleteSelection == .accountProfile ? .accountProfile : .guestAthlete
+        )
+        return Jump(
             date: analysis.timestamp,
             videoURL: recordedVideoURL,
+            athleteProfile: athleteProfile,
             protocolPassed: analysis.protocolPassed,
+            protocolChecks: analysis.protocolChecks.map {
+                JumpProtocolCheck(
+                    name: $0.name,
+                    passed: $0.passed,
+                    value: $0.value,
+                    threshold: $0.threshold
+                )
+            },
             prediction: analysis.prediction,
             anomalyScore: analysis.anomalyScore,
             outlierFeatureCount: analysis.outlierFeatureCount,
@@ -176,7 +211,7 @@ final class CameraViewModel: ObservableObject {
     }
 
     private func athleteHeightCm(for units: MeasurementUnits) -> Double? {
-        let sanitized = profileStore.profile.height
+        let sanitized = selectedAthleteProfile.height
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: ",", with: ".")
         guard let rawHeight = Double(sanitized), rawHeight > 0 else {

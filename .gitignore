@@ -6,6 +6,7 @@ xcuserdata/
 *.xcuserdatad/
 *.xcuserstate
 DerivedData/
+build/
 __pycache__/
 *.py[cod]
 .cache/

@@ -40,7 +40,9 @@ private struct FirestoreJumpRecord: Codable {
     let id: UUID
     let date: Date
     let videoURLString: String?
+    let athleteProfile: JumpAthleteProfile?
     let protocolPassed: Bool
+    let protocolChecks: [JumpProtocolCheck]
     let prediction: String
     let anomalyScore: Double
     let outlierFeatureCount: Int
@@ -68,7 +70,9 @@ private struct FirestoreJumpRecord: Codable {
         id = jump.id
         date = jump.date
         videoURLString = jump.videoURL?.absoluteString
+        athleteProfile = jump.athleteProfile
         protocolPassed = jump.protocolPassed
+        protocolChecks = jump.protocolChecks
         prediction = jump.prediction
         anomalyScore = jump.anomalyScore
         outlierFeatureCount = jump.outlierFeatureCount
@@ -106,7 +110,20 @@ private struct FirestoreJumpRecord: Codable {
         self.id = id
         self.date = timestamp.dateValue()
         self.videoURLString = data["videoURLString"] as? String
+        if let athleteData = data["athleteProfile"] as? [String: Any] {
+            let jsonData = try? JSONSerialization.data(withJSONObject: athleteData)
+            self.athleteProfile = jsonData.flatMap { try? JSONDecoder().decode(JumpAthleteProfile.self, from: $0) }
+        } else {
+            self.athleteProfile = nil
+        }
         self.protocolPassed = data["protocolPassed"] as? Bool ?? true
+        if let rawChecks = data["protocolChecks"] as? [[String: Any]],
+           let jsonData = try? JSONSerialization.data(withJSONObject: rawChecks),
+           let decodedChecks = try? JSONDecoder().decode([JumpProtocolCheck].self, from: jsonData) {
+            self.protocolChecks = decodedChecks
+        } else {
+            self.protocolChecks = []
+        }
         self.prediction = data["prediction"] as? String ?? "legacy"
         self.anomalyScore = data["anomalyScore"] as? Double ?? 0
         self.outlierFeatureCount = data["outlierFeatureCount"] as? Int ?? 0
@@ -136,7 +153,9 @@ private struct FirestoreJumpRecord: Codable {
             "id": id.uuidString,
             "date": Timestamp(date: date),
             "videoURLString": videoURLString as Any,
+            "athleteProfile": athleteProfileDictionary as Any,
             "protocolPassed": protocolPassed,
+            "protocolChecks": protocolChecksDictionary,
             "prediction": prediction,
             "anomalyScore": anomalyScore,
             "outlierFeatureCount": outlierFeatureCount,
@@ -162,12 +181,33 @@ private struct FirestoreJumpRecord: Codable {
         ]
     }
 
+    private var athleteProfileDictionary: [String: Any]? {
+        guard let athleteProfile,
+              let data = try? JSONEncoder().encode(athleteProfile),
+              let jsonObject = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return jsonObject
+    }
+
+    private var protocolChecksDictionary: [[String: Any]] {
+        protocolChecks.compactMap { check in
+            guard let data = try? JSONEncoder().encode(check),
+                  let jsonObject = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return nil
+            }
+            return jsonObject
+        }
+    }
+
     func toJump() -> Jump {
         Jump(
             id: id,
             date: date,
             videoURL: videoURLString.flatMap(URL.init(string:)),
+            athleteProfile: athleteProfile,
             protocolPassed: protocolPassed,
+            protocolChecks: protocolChecks,
             prediction: prediction,
             anomalyScore: anomalyScore,
             outlierFeatureCount: outlierFeatureCount,

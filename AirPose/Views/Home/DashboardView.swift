@@ -11,7 +11,6 @@ struct DashboardView: View {
                 latestScoreCard
                 statsGrid(for: size)
                 ctaSection
-                recentJumpsSection
             }
         }
         .navigationTitle("Dashboard")
@@ -75,25 +74,6 @@ struct DashboardView: View {
     private var ctaSection: some View {
         PrimaryActionButton(title: "Record New Jump", systemImage: "video.badge.plus") {
             tabRouter.selectedTab = .camera
-        }
-    }
-
-    private var recentJumpsSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            SectionHeader("Recent Jumps", subtitle: "A quick look at your last sessions.")
-
-            if viewModel.recentJumps.isEmpty {
-                GlassCard {
-                    Text("No jumps saved yet. Use the Camera tab to record or simulate your first analysis.")
-                        .font(.subheadline)
-                        .foregroundStyle(Color.airPoseSecondaryText)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            } else {
-                ForEach(viewModel.recentJumps) { jump in
-                    JumpCardView(jump: jump)
-                }
-            }
         }
     }
 }

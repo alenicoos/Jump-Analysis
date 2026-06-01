@@ -55,12 +55,14 @@ class DropJumpProtocolValidator:
 
     def __init__(
         self,
-        min_drop_height_ratio: float = 0.15,
-        min_second_jump_ratio: float = 0.12,
+        min_drop_height_ratio: float = 0.12,
+        max_two_foot_contact_ratio: float = 0.13,
+        min_second_jump_ratio: float = 0.10,
         second_jump_window_frames: int = 60,
         max_post_landing_fall_ratio: float = 0.25,
     ) -> None:
         self.min_drop_height_ratio = min_drop_height_ratio
+        self.max_two_foot_contact_ratio = max_two_foot_contact_ratio
         self.min_second_jump_ratio = min_second_jump_ratio
         self.second_jump_window_frames = second_jump_window_frames
         self.max_post_landing_fall_ratio = max_post_landing_fall_ratio
@@ -122,7 +124,18 @@ class DropJumpProtocolValidator:
             drop = frame_drop
             min_drop = self.min_drop_height_ratio * reference_width
 
-        # CHECK 2 - second_jump
+        # CHECK 2 - two_foot_contact
+        #
+        # At initial contact, verify that the two ankles are at roughly the
+        # same vertical level. A large asymmetry suggests a one-foot landing
+        # or unstable pose tracking.
+        contact_diff = abs(
+            frames[initial_contact_index].keypoints_xy[LEFT_ANKLE][1]
+            - frames[initial_contact_index].keypoints_xy[RIGHT_ANKLE][1]
+        )
+        max_contact_diff = self.max_two_foot_contact_ratio * reference_width
+
+        # CHECK 3 - second_jump
         #
         # After landing and maximum flexion, the drop jump requires a second
         # jump. Search in following frames:
@@ -146,7 +159,7 @@ class DropJumpProtocolValidator:
         jump_lift = max(second_lift, body_lift)
         min_second_jump = self.min_second_jump_ratio * reference_width
 
-        # CHECK 3 - stable_after_second_landing
+        # CHECK 4 - stable_after_second_landing
         #
         # After the second jump, find the next landing as the first frame after
         # takeoff where ankles return close to the first landing level. Then
@@ -174,6 +187,12 @@ class DropJumpProtocolValidator:
                 passed=bool(drop >= min_drop),
                 value=drop,
                 threshold=min_drop,
+            ),
+            ProtocolCheck(
+                name="two_foot_contact",
+                passed=bool(contact_diff <= max_contact_diff),
+                value=contact_diff,
+                threshold=max_contact_diff,
             ),
             ProtocolCheck(
                 name="second_jump",

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from datetime import datetime, UTC
+import logging
 from pathlib import Path
 
 import cv2
@@ -9,6 +10,7 @@ import numpy as np
 import pandas as pd
 from ultralytics import YOLO
 
+from jump_analysis.imu import IMURecordingSummary, WitMotionRecordingFinder
 from jump_analysis.models import RobustAnomalyModel
 from jump_analysis.video import compare_to_reference, extract_front_features_from_yolo_frames
 from jump_analysis.video.yolo_video import (
@@ -19,11 +21,22 @@ from jump_analysis.video.yolo_video import (
     select_pose,
 )
 
+logger = logging.getLogger("jump_analysis.service")
+
+
+@dataclass
+class ProtocolCheckResult:
+    name: str
+    passed: bool
+    value: float
+    threshold: float
+
 
 @dataclass
 class JumpAnalysisResult:
     timestamp: datetime
     protocol_passed: bool
+    protocol_checks: list[ProtocolCheckResult]
     prediction: str
     anomaly_score: float
     outlier_feature_count: int
@@ -45,10 +58,13 @@ class JumpAnalysisResult:
     max_knee_flexion_right_knee_angle_deg: float
     landing_asymmetry_ratio: float
     knee_asymmetry_ratio: float
+    imu_recording: IMURecordingSummary | None = None
 
     def as_json(self) -> dict[str, object]:
         payload = asdict(self)
         payload["timestamp"] = self.timestamp.isoformat()
+        if self.imu_recording is not None:
+            payload["imu_recording"] = self.imu_recording.as_json()
         return payload
 
 
@@ -59,21 +75,45 @@ class VideoAnalysisService:
         reference_csv: str | Path = "mocap_front_37_features.csv",
         z_threshold: float = 4.0,
         max_outlier_features: int = 8,
+        witmotion_recordings_root: str | Path | None = None,
     ) -> None:
         self.model_path = str(model_path)
         self.reference_csv = Path(reference_csv)
         self.z_threshold = z_threshold
         self.max_outlier_features = max_outlier_features
         self._model: YOLO | None = None
+        self.recording_finder = WitMotionRecordingFinder(recordings_root=witmotion_recordings_root)
 
     def analyze_video(self, video_path: str | Path, height_cm: float) -> JumpAnalysisResult:
+        return self.analyze_video_with_timestamp(video_path, height_cm=height_cm, recording_started_at=None)
+
+    def analyze_video_with_timestamp(
+        self,
+        video_path: str | Path,
+        height_cm: float,
+        recording_started_at: datetime | None,
+    ) -> JumpAnalysisResult:
         if height_cm <= 0:
             raise ValueError("height_cm must be positive.")
 
+        analysis_started_at = datetime.now(UTC)
         video_path = Path(video_path)
+        logger.info(
+            "Analysis started video_path=%s height_cm=%.2f analysis_started_at=%s recording_started_at=%s",
+            video_path,
+            height_cm,
+            analysis_started_at.isoformat(),
+            recording_started_at.astimezone().isoformat() if recording_started_at is not None else "none",
+        )
         frames, fps, estimated_shoulder_width_m = self._extract_pose_frames(video_path, height_cm)
+        logger.info(
+            "Video features: extracted valid_frames=%s fps=%.3f estimated_shoulder_width_cm=%.2f",
+            len(frames),
+            fps,
+            estimated_shoulder_width_m * 100.0,
+        )
         features, metadata = extract_front_features_from_yolo_frames(frames)
-        comparison = compare_to_reference(features, self.reference_csv)
+        compare_to_reference(features, self.reference_csv)
         reference = pd.read_csv(self.reference_csv)
         anomaly_model = RobustAnomalyModel.fit_reference(
             reference,
@@ -82,12 +122,60 @@ class VideoAnalysisService:
             max_outlier_features=self.max_outlier_features,
         )
         analysis = anomaly_model.predict(pd.DataFrame([features])).iloc[0]
+        imu_reference_time = (recording_started_at or analysis_started_at).astimezone()
+        logger.info("IMU lookup: using reference_time=%s", imu_reference_time.isoformat())
+        imu_recording = self.recording_finder.find_matching_recording(imu_reference_time)
+        if imu_recording is not None:
+            logger.info(
+                "IMU attach: matched_file=%s device_count=%s total_samples=%s offset_seconds=%.3f",
+                imu_recording.matched_file,
+                imu_recording.device_count,
+                imu_recording.total_samples,
+                imu_recording.time_offset_seconds,
+            )
+            logger.info(
+                "IMU merge step: no feature-level fusion yet, attaching IMU summary metadata to analysis result",
+            )
+        else:
+            logger.info("IMU attach: no matching recording found, analysis will be returned with video-only metrics")
 
-        summary = self._build_summary(metadata, analysis)
+        summary = self._build_summary(metadata, analysis, imu_recording)
+        for check_name in (
+            "drop_started_from_height",
+            "two_foot_contact",
+            "second_jump",
+        ):
+            logger.info(
+                "Protocol check %s: passed=%s value=%.3f threshold=%.3f",
+                check_name,
+                bool(metadata.get(f"{check_name}_passed", 0)),
+                float(metadata.get(f"{check_name}_value", 0.0)),
+                float(metadata.get(f"{check_name}_threshold", 0.0)),
+            )
+        logger.info(
+            "Analysis completed prediction=%s protocol_passed=%s anomaly_score=%.3f worst_feature=%s",
+            analysis["prediction"],
+            bool(metadata["protocol_passed"]),
+            float(analysis["anomaly_score"]),
+            analysis["worst_feature"],
+        )
 
         return JumpAnalysisResult(
-            timestamp=datetime.now(UTC),
+            timestamp=analysis_started_at,
             protocol_passed=bool(metadata["protocol_passed"]),
+            protocol_checks=[
+                ProtocolCheckResult(
+                    name=check_name,
+                    passed=bool(metadata.get(f"{check_name}_passed", 0)),
+                    value=float(metadata.get(f"{check_name}_value", 0.0)),
+                    threshold=float(metadata.get(f"{check_name}_threshold", 0.0)),
+                )
+                for check_name in (
+                    "drop_started_from_height",
+                    "two_foot_contact",
+                    "second_jump",
+                )
+            ],
             prediction=str(analysis["prediction"]),
             anomaly_score=float(analysis["anomaly_score"]),
             outlier_feature_count=int(analysis["outlier_feature_count"]),
@@ -109,6 +197,7 @@ class VideoAnalysisService:
             max_knee_flexion_right_knee_angle_deg=float(features["kfmax_right_hip_knee_ankle_frontal_angle"]),
             landing_asymmetry_ratio=float(features["ic_left_right_ankle_y_difference_ratio"]),
             knee_asymmetry_ratio=float(features["kfmax_left_right_knee_y_difference_ratio"]),
+            imu_recording=imu_recording,
         )
 
     def _extract_pose_frames(self, video_path: Path, height_cm: float) -> tuple[list[YoloPoseFrame], float, float]:
@@ -179,22 +268,36 @@ class VideoAnalysisService:
             self._model = YOLO(self.model_path)
         return self._model
 
-    def _build_summary(self, metadata: dict[str, int], analysis: pd.Series) -> str:
+    def _build_summary(
+        self,
+        metadata: dict[str, int],
+        analysis: pd.Series,
+        imu_recording: IMURecordingSummary | None,
+    ) -> str:
         if not metadata["protocol_passed"]:
-            return (
+            summary = (
                 "The movement did not pass the drop-jump protocol checks. "
                 "Repeat the trial starting from a raised position, land on two feet, and perform the rebound jump immediately."
             )
+            if imu_recording is not None:
+                summary += f" {imu_recording.short_summary()}"
+            return summary
 
         prediction = str(analysis["prediction"])
         worst_feature = str(analysis["worst_feature"]).replace("_", " ")
         if prediction == "normal":
-            return (
+            summary = (
                 f"The jump stayed close to the reference dataset overall. "
                 f"The largest deviation was {worst_feature}, but it remained within an acceptable range."
             )
+            if imu_recording is not None:
+                summary += f" {imu_recording.short_summary()}"
+            return summary
 
-        return (
+        summary = (
             f"The jump differs from the reference dataset and should be reviewed. "
             f"The strongest deviation was {worst_feature}, with {int(analysis['outlier_feature_count'])} features outside the normal range."
         )
+        if imu_recording is not None:
+            summary += f" {imu_recording.short_summary()}"
+        return summary

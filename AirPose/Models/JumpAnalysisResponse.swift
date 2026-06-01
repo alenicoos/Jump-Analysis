@@ -1,8 +1,74 @@
 import Foundation
 
 struct JumpAnalysisResponse: Codable, Equatable {
+    struct ProtocolCheckSummary: Codable, Equatable {
+        let name: String
+        let passed: Bool
+        let value: Double
+        let threshold: Double
+    }
+
+    struct IMUDeviceSummary: Codable, Equatable {
+        let deviceName: String
+        let sampleCount: Int
+        let startTime: Date
+        let endTime: Date
+        let durationSeconds: Double
+        let meanAccelerationG: Double?
+        let peakAccelerationG: Double?
+        let meanAngularVelocityDps: Double?
+        let peakAngularVelocityDps: Double?
+        let meanRollDeg: Double?
+        let meanPitchDeg: Double?
+        let meanYawDeg: Double?
+        let meanTemperatureC: Double?
+        let batteryStartPercent: Int?
+        let batteryEndPercent: Int?
+
+        private enum CodingKeys: String, CodingKey {
+            case deviceName = "device_name"
+            case sampleCount = "sample_count"
+            case startTime = "start_time"
+            case endTime = "end_time"
+            case durationSeconds = "duration_seconds"
+            case meanAccelerationG = "mean_acceleration_g"
+            case peakAccelerationG = "peak_acceleration_g"
+            case meanAngularVelocityDps = "mean_angular_velocity_dps"
+            case peakAngularVelocityDps = "peak_angular_velocity_dps"
+            case meanRollDeg = "mean_roll_deg"
+            case meanPitchDeg = "mean_pitch_deg"
+            case meanYawDeg = "mean_yaw_deg"
+            case meanTemperatureC = "mean_temperature_c"
+            case batteryStartPercent = "battery_start_percent"
+            case batteryEndPercent = "battery_end_percent"
+        }
+    }
+
+    struct IMURecordingSummary: Codable, Equatable {
+        let matchedFile: String
+        let matchedFolder: String
+        let recordingStartTime: Date
+        let recordingEndTime: Date
+        let timeOffsetSeconds: Double
+        let deviceCount: Int
+        let totalSamples: Int
+        let deviceSummaries: [IMUDeviceSummary]
+
+        private enum CodingKeys: String, CodingKey {
+            case matchedFile = "matched_file"
+            case matchedFolder = "matched_folder"
+            case recordingStartTime = "recording_start_time"
+            case recordingEndTime = "recording_end_time"
+            case timeOffsetSeconds = "time_offset_seconds"
+            case deviceCount = "device_count"
+            case totalSamples = "total_samples"
+            case deviceSummaries = "device_summaries"
+        }
+    }
+
     let timestamp: Date
     let protocolPassed: Bool
+    let protocolChecks: [ProtocolCheckSummary]
     let prediction: String
     let anomalyScore: Double
     let outlierFeatureCount: Int
@@ -24,10 +90,12 @@ struct JumpAnalysisResponse: Codable, Equatable {
     let maxKneeFlexionRightKneeAngleDeg: Double
     let landingAsymmetryRatio: Double
     let kneeAsymmetryRatio: Double
+    let imuRecording: IMURecordingSummary?
 
     private enum CodingKeys: String, CodingKey {
         case timestamp
         case protocolPassed = "protocol_passed"
+        case protocolChecks = "protocol_checks"
         case prediction
         case anomalyScore = "anomaly_score"
         case outlierFeatureCount = "outlier_feature_count"
@@ -49,5 +117,6 @@ struct JumpAnalysisResponse: Codable, Equatable {
         case maxKneeFlexionRightKneeAngleDeg = "max_knee_flexion_right_knee_angle_deg"
         case landingAsymmetryRatio = "landing_asymmetry_ratio"
         case kneeAsymmetryRatio = "knee_asymmetry_ratio"
+        case imuRecording = "imu_recording"
     }
 }
