@@ -2,16 +2,16 @@ from __future__ import annotations
 
 """Models for knee IMU ground-truth prediction.
 
-Entrambi i modelli sono baseline lineari ridge frame-by-frame. La separazione
-importante e' quali input possono usare:
+Both models are frame-by-frame linear ridge baselines. The important separation
+is which inputs they are allowed to use:
 
-- `VideoOrientationCorrectionModel`: usa i proxy pitch/roll/yaw calcolati dal
-  video piu' dati di scala/contesto, ma non usa le traiettorie dei keypoint.
-- `PoseTrajectoryKneeOrientationModel`: usa le traiettorie dei keypoint e dati
-  di scala/contesto, ma non usa i proxy pitch/roll/yaw calcolati dal video.
+- `VideoOrientationCorrectionModel`: uses video-derived pitch/roll/yaw proxies
+  plus scale/context data, but not keypoint trajectories.
+- `PoseTrajectoryKneeOrientationModel`: uses keypoint trajectories and
+  scale/context data, but not video-derived pitch/roll/yaw proxies.
 
-Piu' avanti potremo sostituire queste baseline con modelli sequenziali, ma la
-divisione sperimentale rimane la stessa.
+Later these baselines can be replaced with sequence models, while preserving the
+same experimental split.
 """
 
 from dataclasses import dataclass
@@ -61,7 +61,7 @@ POSE_TRAJECTORY_EXTRA_COLUMNS = [
 
 @dataclass
 class RidgeSequenceRegressor:
-    """Baseline ridge multi-output per predire una serie frame-by-frame."""
+    """Multi-output ridge baseline for frame-by-frame sequence prediction."""
 
     input_columns: list[str]
     target_columns: list[str]
@@ -71,7 +71,7 @@ class RidgeSequenceRegressor:
     feature_std: np.ndarray | None = None
 
     def fit(self, frame_data: pd.DataFrame) -> "RidgeSequenceRegressor":
-        """Allena il modello sui frame che hanno ground truth sensore."""
+        """Fit the model on frames with sensor ground truth."""
 
         data = frame_data[self.input_columns + self.target_columns].apply(pd.to_numeric, errors="coerce").dropna()
         if data.empty:
@@ -91,7 +91,7 @@ class RidgeSequenceRegressor:
         return self
 
     def predict(self, frame_data: pd.DataFrame) -> pd.DataFrame:
-        """Predice pitch/roll/yaw sensore per ogni frame."""
+        """Predict sensor pitch/roll/yaw for each frame."""
 
         if self.weights is None or self.feature_mean is None or self.feature_std is None:
             raise RuntimeError("Model is not fitted.")
@@ -104,7 +104,7 @@ class RidgeSequenceRegressor:
         return pd.DataFrame(prediction, columns=[f"pred_{column}" for column in self.target_columns])
 
     def save(self, path: str | Path) -> None:
-        """Salva i pesi in formato `.npz`."""
+        """Save weights in `.npz` format."""
 
         if self.weights is None or self.feature_mean is None or self.feature_std is None:
             raise RuntimeError("Model is not fitted.")
@@ -120,7 +120,7 @@ class RidgeSequenceRegressor:
 
     @classmethod
     def load(cls, path: str | Path) -> "RidgeSequenceRegressor":
-        """Carica un modello salvato con `save`."""
+        """Load a model saved with `save`."""
 
         data = np.load(path, allow_pickle=True)
         model = cls(
@@ -135,7 +135,7 @@ class RidgeSequenceRegressor:
 
 
 class VideoOrientationCorrectionModel(RidgeSequenceRegressor):
-    """Predice ground truth IMU partendo dai proxy video pitch/roll/yaw."""
+    """Predict IMU ground truth from video pitch/roll/yaw proxies."""
 
     def __init__(self, alpha: float = 1.0) -> None:
         super().__init__(
@@ -146,7 +146,7 @@ class VideoOrientationCorrectionModel(RidgeSequenceRegressor):
 
 
 class PoseTrajectoryKneeOrientationModel(RidgeSequenceRegressor):
-    """Predice ground truth IMU usando traiettorie keypoint e dati di scala."""
+    """Predict IMU ground truth from keypoint trajectories and scale data."""
 
     def __init__(self, alpha: float = 1.0) -> None:
         super().__init__(
@@ -157,7 +157,7 @@ class PoseTrajectoryKneeOrientationModel(RidgeSequenceRegressor):
 
 
 def pose_trajectory_input_columns() -> list[str]:
-    """Colonne input del modello basato su traiettorie dei keypoint."""
+    """Input columns for the keypoint-trajectory model."""
 
     columns = list(POSE_TRAJECTORY_EXTRA_COLUMNS)
     for keypoint_index in range(17):

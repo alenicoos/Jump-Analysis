@@ -2,8 +2,8 @@ from __future__ import annotations
 
 """Small audio/text feedback helper.
 
-Durante il setup possiamo dare indicazioni vocali. Su macOS usiamo `say`; sugli
-altri sistemi lasciamo il print e un beep di terminale.
+During setup we can give spoken guidance. On macOS we use `say`; on other
+systems we keep terminal text and a bell.
 """
 
 import platform
@@ -14,48 +14,57 @@ from dataclasses import dataclass
 
 @dataclass
 class AudioFeedback:
-    """Gestisce messaggi stampati e, opzionalmente, pronunciati."""
+    """Prints messages and optionally speaks them."""
 
     enabled: bool = True
     min_interval_seconds: float = 4.0
 
     def __post_init__(self) -> None:
-        """Stato interno per evitare di ripetere lo stesso messaggio troppo spesso."""
+        """Internal state used to avoid repeating the same message too often."""
 
-        self._last_message: str | None = None
-        self._last_spoken_at = 0.0
+        self._last_spoken_by_message: dict[str, float] = {}
+        self._active_process: subprocess.Popen | None = None
 
     def warn(self, message: str) -> None:
-        """Messaggio di warning."""
+        """Warning message."""
 
-        self.speak(f"Attenzione. {message}")
+        self.speak(f"Warning. {message}")
 
     def error(self, message: str) -> None:
-        """Messaggio di errore."""
+        """Error message."""
 
-        self.speak(f"Errore. {message}")
+        self.speak(f"Error. {message}")
 
     def speak(self, message: str, force: bool = False) -> None:
-        """Stampa sempre il messaggio e, se abilitato, lo pronuncia."""
+        """Always print the message and speak it when audio is enabled.
+
+        The rate limit is per message. Repeating the same sentence too soon is
+        suppressed, but a different sentence is spoken immediately.
+        """
 
         print(message, flush=True)
         if not self.enabled:
             return
 
-        # Rate limit: durante la webcam arrivano molti frame al secondo, quindi
-        # senza questo controllo la voce ripeterebbe lo stesso warning di continuo.
         now = time.monotonic()
-        if not force and message == self._last_message and now - self._last_spoken_at < self.min_interval_seconds:
-            return
-        if not force and now - self._last_spoken_at < self.min_interval_seconds:
+        last_spoken_at = self._last_spoken_by_message.get(message, 0.0)
+        if not force and now - last_spoken_at < self.min_interval_seconds:
             return
 
-        self._last_message = message
-        self._last_spoken_at = now
+        self._last_spoken_by_message[message] = now
+        self._stop_active_speech()
 
-        # Darwin è il nome di sistema per macOS. `say` è un comando built-in che pronuncia il testo.
+        # Darwin is the system name for macOS. `say` is a built-in text-to-speech command.
         if platform.system() == "Darwin":
-            # `say` e' disponibile su macOS e non blocca il processo principale.
-            subprocess.Popen(["say", message], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self._active_process = subprocess.Popen(["say", message], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         else:
             print("\a", end="", flush=True)
+
+    def _stop_active_speech(self) -> None:
+        """Stop the previous spoken message before starting a new one."""
+
+        if self._active_process is None:
+            return
+        if self._active_process.poll() is None:
+            self._active_process.terminate()
+        self._active_process = None

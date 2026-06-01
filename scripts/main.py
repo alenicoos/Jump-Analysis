@@ -2,9 +2,9 @@ from __future__ import annotations
 
 """Full webcam workflow.
 
-Questo e' il comando principale del progetto. Esegue tutto il flusso:
-altezza utente, setup webcam, acquisizione drop jump, estrazione feature,
-confronto col dataset e anomaly detection.
+This is the main project command. It runs the full flow: user height, webcam
+setup, drop-jump capture, feature extraction, dataset comparison, and anomaly
+detection.
 """
 
 import argparse
@@ -21,6 +21,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from jump_analysis import RobustAnomalyModel
+from jump_analysis.feedback import AudioFeedback
 from jump_analysis.video import (
     capture_yolo_pose_frames_with_open_capture,
     compare_to_reference,
@@ -30,22 +31,22 @@ from jump_analysis.video import (
 
 
 def ask_height_cm() -> float:
-    """Chiede l'altezza finche' l'utente inserisce un valore plausibile."""
+    """Ask for height until the user enters a plausible value."""
 
     while True:
-        raw = input("Inserisci la tua altezza in cm: ").strip().replace(",", ".")
+        raw = input("Enter your height in cm: ").strip().replace(",", ".")
         try:
             height_cm = float(raw)
         except ValueError:
-            print("Valore non valido. Scrivi un numero, per esempio 183.")
+            print("Invalid value. Enter a number, for example 183.")
             continue
         if 80.0 <= height_cm <= 250.0:
             return height_cm
-        print("Altezza fuori range. Scrivi l'altezza in centimetri, per esempio 183.")
+        print("Height out of range. Enter height in centimeters, for example 183.")
 
 
 def main() -> None:
-    """Entry point CLI per acquisizione e analisi completa."""
+    """CLI entry point for full capture and analysis."""
 
     parser = argparse.ArgumentParser(
         description="Capture a front-view YOLO drop jump and compare its 37 features to the mocap dataset."
@@ -71,35 +72,36 @@ def main() -> None:
     parser.add_argument("--allow-invalid-protocol", action="store_true", help="Continue even if the captured drop jump protocol fails.")
     args = parser.parse_args()
     setup_audio = args.audio or not args.no_audio
+    feedback = AudioFeedback(enabled=setup_audio)
 
-    # L'altezza serve per convertire pixel in metri durante il setup.
+    # Height is used to convert pixels to meters during setup.
     height_cm = args.height_cm if args.height_cm is not None else ask_height_cm()
     shoulder_width_m = None
 
     source = int(args.source) if str(args.source).isdigit() else args.source
-    print("Avvio modello e webcam...")
+    print("Starting model and webcam...")
 
-    # Carichiamo YOLO una volta sola e teniamo la webcam aperta per setup e jump.
+    # Load YOLO once and keep the webcam open for both setup and jump capture.
     model = YOLO(args.model)
     cap = cv2.VideoCapture(source)
     if not cap.isOpened():
         raise RuntimeError(f"Cannot open video source: {source}")
     try:
-        # Durante il setup misuriamo l'altezza in pixel della figura a terra.
-        # Sapendo l'altezza reale inserita, ricaviamo metri/pixel e quindi la
-        # larghezza spalle reale misurata dalla webcam.
+        # During setup we measure body height in pixels on the floor. With the
+        # declared real height, we estimate meters/pixel and measured shoulder width.
         calibration = run_floor_box_setup_with_open_capture(
             cap,
             model,
             height_cm=height_cm,
             show=not args.no_show,
             audio=setup_audio,
+            feedback=feedback,
             auto_detect_box=not args.manual_box_setup,
         )
         shoulder_width_m = calibration.measured_shoulder_width_m
 
-        # Questa funzione aspetta sul box e inizia a registrare solo quando
-        # rileva la discesa del drop jump.
+        # This function waits on the box and starts recording only when it
+        # detects the drop-jump descent.
         frames = capture_yolo_pose_frames_with_open_capture(
             cap,
             model,
@@ -109,13 +111,14 @@ def main() -> None:
             prepare_seconds=args.prepare_seconds,
             min_drop_ratio=args.min_drop_ratio,
             max_wait_seconds=args.max_wait_seconds,
+            feedback=feedback,
         )
     finally:
         cap.release()
         if not args.no_show:
             cv2.destroyAllWindows()
 
-    # Dai frame validi ricaviamo feature e metadati di protocollo.
+    # Extract features and protocol metadata from valid frames.
     features, metadata = extract_front_features_from_yolo_frames(frames)
     print("Protocol check:")
     for key, value in metadata.items():
@@ -123,19 +126,19 @@ def main() -> None:
             print(f"  {key}: {'OK' if value else 'FAIL'}")
     if not metadata["protocol_passed"] and not args.allow_invalid_protocol:
         raise RuntimeError(
-            "Il movimento registrato non sembra un drop jump LESS valido. "
-            "Riprova: sali sul rialzo, scendi, atterra e fai subito il secondo salto. "
-            "Usa --allow-invalid-protocol solo per debug."
+            "The recorded movement does not look like a valid LESS drop jump. "
+            "Try again: start on the box, drop down, land, and immediately perform the second jump. "
+            "Use --allow-invalid-protocol only for debugging."
         )
 
-    # CSV grezzo della prova: metadati + 37 feature.
+    # Raw trial CSV: metadata + 37 features.
     pd.DataFrame([{**metadata, **features}]).to_csv(args.features_output, index=False)
 
-    # Confronto descrittivo feature-per-feature: z-score classico e percentile.
+    # Feature-by-feature descriptive comparison: classic z-score and percentile.
     comparison = compare_to_reference(features, args.reference)
     comparison.to_csv(args.comparison_output, index=False)
 
-    # Modello robusto: usa il riferimento come normalita' e decide normal/anomaly.
+    # Robust model: uses the reference as normality and predicts normal/anomaly.
     reference = pd.read_csv(args.reference)
     anomaly_model = RobustAnomalyModel.fit_reference(
         reference,

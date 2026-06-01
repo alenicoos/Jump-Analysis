@@ -2,9 +2,9 @@ from __future__ import annotations
 
 """Knee orientation time-series features.
 
-La webcam frontale non puo' ricostruire il vero pitch/roll/yaw 3D del ginocchio.
-Qui calcoliamo quindi proxy video coerenti nel tempo. Il ground truth vero resta
-quello dei sensori IMU montati sulle ginocchia.
+A front-view webcam cannot reconstruct true 3D knee pitch/roll/yaw. This module
+therefore computes time-consistent video proxies. True ground truth remains the
+IMU sensors mounted near the knees.
 """
 
 from dataclasses import dataclass
@@ -25,7 +25,7 @@ from jump_analysis.features.front_2d_features import (
 
 @dataclass
 class KneeOrientation:
-    """Orientamento/proxy di un ginocchio in gradi."""
+    """Knee orientation/proxy in degrees."""
 
     pitch_deg: float
     roll_deg: float
@@ -33,21 +33,21 @@ class KneeOrientation:
 
 
 def signed_vertical_angle_deg(start: np.ndarray, end: np.ndarray) -> float:
-    """Angolo signed del segmento rispetto alla verticale immagine."""
+    """Signed segment angle relative to image vertical."""
 
     vector = end - start
     return float(np.degrees(np.arctan2(vector[0], vector[1])))
 
 
 def estimate_knee_orientation_from_pose(keypoints_xy: np.ndarray, side: str) -> KneeOrientation:
-    """Stima proxy pitch/roll/yaw da keypoint 2D frontali.
+    """Estimate pitch/roll/yaw proxies from front-view 2D keypoints.
 
-    `pitch_deg` usa la flessione anca-ginocchio-caviglia come proxy.
-    `roll_deg` usa l'inclinazione media di femore e tibia nel piano frontale.
-    `yaw_deg` usa lo spostamento medio-laterale ginocchio-caviglia come proxy.
+    `pitch_deg` uses hip-knee-ankle flexion as a proxy.
+    `roll_deg` uses average thigh/shank tilt in the frontal plane.
+    `yaw_deg` uses medial-lateral knee-to-ankle displacement as a proxy.
 
-    Questi non sono angoli 3D veri. Sono segnali video-derived da usare come
-    input del modello e confrontare/correggere con i sensori.
+    These are not true 3D angles. They are video-derived signals to use as model
+    inputs and compare/correct against sensors.
     """
 
     if side == "left":

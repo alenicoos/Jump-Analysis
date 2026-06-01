@@ -2,12 +2,12 @@ from __future__ import annotations
 
 """Setup validation before acquiring a drop jump.
 
-Qui controlliamo solo se la calibrazione iniziale e' abbastanza affidabile:
-- posa a terra stabile;
-- posa sul box stabile;
-- utente non troppo piu' vicino/lontano dalla camera;
-- camera non troppo ruotata;
-- caviglie chiaramente piu' alte sul box che a terra.
+This module checks whether the initial calibration is reliable enough:
+- stable floor pose;
+- stable box pose;
+- user did not move too much toward/away from the camera;
+- camera is not too rotated;
+- ankles are clearly higher on the box than on the floor.
 """
 
 import math
@@ -30,7 +30,7 @@ from jump_analysis.features.front_2d_features import (
 
 @dataclass
 class SetupCheck:
-    """Risultato di un singolo controllo del setup."""
+    """Result of one setup check."""
 
     name: str
     passed: bool
@@ -42,13 +42,13 @@ class SetupCheck:
 
 @dataclass
 class CalibrationPose:
-    """Wrapper leggero intorno ai keypoint di una posa di calibrazione."""
+    """Light wrapper around calibration-pose keypoints."""
 
     keypoints_xy: np.ndarray
 
     @property
     def ankle_y(self) -> float:
-        """Coordinata verticale media delle caviglie."""
+        """Average vertical coordinate of the ankles."""
 
         return float((self.keypoints_xy[LEFT_ANKLE][1] + self.keypoints_xy[RIGHT_ANKLE][1]) / 2.0)
 
@@ -70,10 +70,9 @@ class CalibrationPose:
 
     @property
     def body_scale(self) -> float:
-        """Scala del corpo usata per soglie relative in pixel.
+        """Body scale used for relative pixel thresholds.
         
-        Se non riusciamo a misurare la larghezza delle spalle,
-        usiamo quella delle anche come fallback.
+        If shoulder width cannot be measured, hip width is used as fallback.
         """
 
         if self.shoulder_width > 1e-6:
@@ -83,7 +82,7 @@ class CalibrationPose:
 
 @dataclass
 class SetupCalibration:
-    """Dati finali prodotti dal setup terra/box."""
+    """Final data produced by floor/box setup."""
 
     floor_pose: CalibrationPose
     box_pose: CalibrationPose
@@ -99,7 +98,7 @@ class SetupCalibration:
 
 @dataclass
 class SetupValidationResult:
-    """Risultato complessivo del setup."""
+    """Overall setup validation result."""
 
     passed: bool
     messages: list[str]
@@ -108,7 +107,7 @@ class SetupValidationResult:
 
 
 class SetupValidator:
-    """Valida camera e setup prima dell'acquisizione del drop jump."""
+    """Validate camera and setup before drop-jump acquisition."""
 
     def __init__(
         self,
@@ -129,20 +128,19 @@ class SetupValidator:
         height_cm: float,
         floor_body_height_px: float,
     ) -> SetupValidationResult:
-        """Confronta posa a terra e posa sul box.
+        """Compare floor pose and box pose.
 
-        Il controllo centrale e' la differenza verticale delle caviglie.
-        Usiamo anche la variazione di scala del corpo per intercettare un caso
-        comune: l'utente si avvicina alla camera e sembra "piu' alto" anche se
-        non e' davvero salito sul box.
+        The central check is vertical ankle difference. Body-scale change is
+        also used to catch a common failure mode: the user moves closer to the
+        camera and appears "higher" without actually stepping onto the box.
         """
 
         floor_pose = CalibrationPose(floor_keypoints_xy)
         box_pose = CalibrationPose(box_keypoints_xy)
         checks: list[SetupCheck] = []
 
-        # Roll della camera: se spalle/anche/ginocchia/caviglie risultano molto
-        # inclinate, probabilmente il telefono non e' dritto.
+        # Camera roll: if shoulders/hips/knees/ankles are strongly tilted, the
+        # phone/camera is probably not straight.
         floor_roll = self._max_horizontal_tilt(floor_keypoints_xy)
         checks.append(
             SetupCheck(
@@ -155,9 +153,8 @@ class SetupValidator:
             )
         )
 
-        # Proxy di prospettiva: se larghezza spalle, anche, ginocchia e caviglie
-        # cambiano molto tra loro, la camera potrebbe essere troppo alta/bassa
-        # o troppo vicina.
+        # Perspective proxy: if shoulder, hip, knee, and ankle widths differ
+        # strongly, the camera may be too high/low or too close.
         pitch_proxy = self._pitch_proxy_ratio(floor_pose)
         checks.append(
             SetupCheck(
@@ -170,8 +167,8 @@ class SetupValidator:
             )
         )
 
-        # Se la persona si avvicina o si allontana tra posa a terra e posa sul
-        # box, la stima dell'altezza del box diventa poco affidabile.
+        # If the person moves toward/away from the camera between floor and box
+        # pose, box-height estimation becomes unreliable.
         scale_change = abs(box_pose.body_scale - floor_pose.body_scale) / max(floor_pose.body_scale, 1e-6)
         checks.append(
             SetupCheck(
@@ -184,8 +181,8 @@ class SetupValidator:
             )
         )
 
-        # In OpenCV y aumenta verso il basso: sul box le caviglie devono avere
-        # y minore, quindi floor_y - box_y deve essere positivo.
+        # In OpenCV, y increases downward. On the box, ankles should have a
+        # lower y value, so floor_y - box_y should be positive.
         box_height_px = floor_pose.ankle_y - box_pose.ankle_y
         min_box_height_px = self.min_box_height_ratio * max(floor_pose.body_scale, 1e-6)
         checks.append(
@@ -199,10 +196,9 @@ class SetupValidator:
             )
         )
 
-        # Conversione pixel->metri: durante il setup a terra misuriamo
-        # l'altezza della persona in pixel con `estimate_person_height_px` e
-        # sappiamo l'altezza reale inserita dall'utente. Questa scala viene poi
-        # usata anche per la larghezza spalle e per l'altezza del box.
+        # Pixel-to-meter conversion: during floor setup we measure body height
+        # in pixels and know the user's declared real height. The same scale is
+        # then used for shoulder width and box height.
         meters_per_pixel = (height_cm / 100.0) / max(floor_body_height_px, 1e-6)
         measured_shoulder_width_m = floor_pose.shoulder_width * meters_per_pixel
         estimated_cm = box_height_px * meters_per_pixel * 100.0
@@ -229,7 +225,7 @@ class SetupValidator:
         return SetupValidationResult(passed=passed, messages=messages, checks=checks, calibration=calibration)
 
     def _max_horizontal_tilt(self, keypoints_xy: np.ndarray) -> float:
-        """Massima inclinazione tra segmenti che dovrebbero essere orizzontali."""
+        """Maximum tilt among segments that should be horizontal."""
 
         tilts = [
             self._line_tilt_degrees(keypoints_xy[LEFT_SHOULDER], keypoints_xy[RIGHT_SHOULDER]),
@@ -240,7 +236,7 @@ class SetupValidator:
         return max(abs(value) for value in tilts if not math.isnan(value))
 
     def _line_tilt_degrees(self, left: np.ndarray, right: np.ndarray) -> float:
-        """Inclinazione in gradi della linea sinistra-destra."""
+        """Tilt in degrees of a left-right line."""
 
         delta = right - left
         if np.linalg.norm(delta) == 0:
@@ -248,10 +244,10 @@ class SetupValidator:
         return math.degrees(math.atan2(float(delta[1]), float(delta[0])))
 
     def _pitch_proxy_ratio(self, pose: CalibrationPose) -> float:
-        """Proxy non rigoroso per prospettiva alto/basso.
+        """Loose proxy for high/low camera perspective.
 
-        Non corregge la distorsione; segnala solo quando le larghezze del corpo
-        cambiano troppo tra segmenti orizzontali.
+        This does not correct distortion. It only flags when body widths change
+        too much across horizontal segments.
         """
 
         widths = np.array([pose.shoulder_width, pose.hip_width, pose.knee_width, pose.ankle_width], dtype=float)
@@ -262,7 +258,7 @@ class SetupValidator:
 
 
 class StablePoseBuffer:
-    """Accumula frame e restituisce una posa solo quando l'utente e' fermo."""
+    """Accumulate frames and return a pose only when the user is still."""
 
     def __init__(self, maxlen: int = 30, min_frames: int = 12, max_motion_ratio: float = 0.025) -> None:
         self.maxlen = maxlen
@@ -271,17 +267,17 @@ class StablePoseBuffer:
         self._items: deque[np.ndarray] = deque(maxlen=maxlen)
 
     def clear(self) -> None:
-        """Svuota il buffer quando la posa diventa incompleta o cambia troppo."""
+        """Clear the buffer when the pose becomes incomplete or changes too much."""
 
         self._items.clear()
 
     def add(self, keypoints_xy: np.ndarray) -> None:
-        """Aggiunge una copia dei keypoint per evitare modifiche accidentali."""
+        """Add a copy of keypoints to avoid accidental mutation."""
 
         self._items.append(np.asarray(keypoints_xy, dtype=float).copy())
 
     def stable_pose(self) -> np.ndarray | None:
-        """Restituisce la mediana dei frame se il movimento e' sotto soglia."""
+        """Return the frame median if movement is below threshold."""
 
         if len(self._items) < self.min_frames:
             return None

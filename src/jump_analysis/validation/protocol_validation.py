@@ -2,9 +2,9 @@ from __future__ import annotations
 
 """Drop-jump protocol validation.
 
-Questo modulo controlla se il movimento registrato ha la struttura minima di un
-drop jump: partenza da un rialzo, atterraggio a due piedi e salto successivo.
-Non assegna un LESS score e non valuta ancora la qualita' clinica completa.
+This module checks whether the recorded movement has the minimum structure of a
+drop jump: start from a box, two-foot landing, and immediate follow-up jump.
+It does not assign a LESS score and does not yet evaluate full clinical quality.
 """
 
 from dataclasses import dataclass
@@ -24,7 +24,7 @@ from jump_analysis.features.front_2d_features import (
 
 @dataclass
 class ProtocolCheck:
-    """Risultato numerico di un singolo check del protocollo."""
+    """Numeric result of one protocol check."""
 
     name: str
     passed: bool
@@ -34,13 +34,13 @@ class ProtocolCheck:
 
 @dataclass
 class DropJumpProtocolResult:
-    """Risultato complessivo dei check sul drop jump."""
+    """Overall result of drop-jump checks."""
 
     passed: bool
     checks: list[ProtocolCheck]
 
     def as_metadata(self) -> dict[str, float | int]:
-        """Converte i check in colonne salvabili dentro il CSV delle feature."""
+        """Convert checks to columns that can be saved in the feature CSV."""
 
         metadata: dict[str, float | int] = {"protocol_passed": int(self.passed)}
         for check in self.checks:
@@ -51,19 +51,19 @@ class DropJumpProtocolResult:
 
 
 class DropJumpProtocolValidator:
-    """Valida la sequenza base del drop jump dopo il setup."""
+    """Validate the basic drop-jump sequence after setup."""
 
     def __init__(
         self,
         min_drop_height_ratio: float = 0.15,
-        max_two_foot_contact_ratio: float = 0.10,
         min_second_jump_ratio: float = 0.12,
         second_jump_window_frames: int = 60,
+        max_post_landing_fall_ratio: float = 0.25,
     ) -> None:
         self.min_drop_height_ratio = min_drop_height_ratio
-        self.max_two_foot_contact_ratio = max_two_foot_contact_ratio
         self.min_second_jump_ratio = min_second_jump_ratio
         self.second_jump_window_frames = second_jump_window_frames
+        self.max_post_landing_fall_ratio = max_post_landing_fall_ratio
 
     def validate(
         self,
@@ -71,81 +71,102 @@ class DropJumpProtocolValidator:
         initial_contact_index: int,
         max_knee_flexion_index: int,
     ) -> DropJumpProtocolResult:
-        """Esegue i tre controlli principali sul movimento registrato.
+        """Run the main checks on the recorded movement.
 
-        Input importante:
-        - `frames`: frame validi del salto, gia' normalizzati;
-        - `initial_contact_index`: frame in cui stimiamo l'atterraggio;
-        - `max_knee_flexion_index`: frame in cui stimiamo la massima flessione.
+        Important inputs:
+        - `frames`: valid jump frames, already normalized;
+        - `initial_contact_index`: estimated landing frame;
+        - `max_knee_flexion_index`: estimated maximum-flexion frame.
 
-        Tutte le soglie sono relative alla larghezza spalle. Cosi' il controllo
-        non dipende direttamente dalla scala della webcam.
+        All thresholds are relative to shoulder width, so the check does not
+        depend directly on webcam pixel scale.
         """
 
-        # Serie temporale della quota media delle caviglie.
-        # In OpenCV/Yolo la y cresce verso il basso:
-        # - caviglie piu' alte nello schermo => y piu' piccola;
-        # - caviglie piu' basse/atterraggio => y piu' grande.
+        # Time series of average ankle height. In OpenCV/YOLO, y grows downward:
+        # - ankles higher on screen => smaller y;
+        # - ankles lower/landing => larger y.
         ankle_y = np.array([self.ankle_mean_y(frame) for frame in frames])
 
-        # Serie temporale della quota del centro corpo. Serve come secondo
-        # segnale per capire se dopo l'atterraggio il corpo si solleva davvero.
+        # Body-center height time series. This is a second cue for checking
+        # whether the body really rises after landing.
         body_y = np.array([body_keypoint(frame.keypoints_xy)[1] for frame in frames])
 
-        # Usiamo la larghezza spalle mediana come "unità" del corpo.
-        # Esempio: una soglia 0.15 significa 15% della larghezza spalle.
-        
-        # Serve per rendere le soglie “relative al corpo”, non ai pixel grezzi della webcam.
-        # Se usassimo una soglia fissa tipo “il drop deve essere almeno 40 pixel”, sarebbe sbagliato
-        
+        # Median shoulder width is the body-relative unit. For example, a 0.15
+        # threshold means 15% of shoulder width. This keeps thresholds
+        # body-relative rather than raw webcam pixels. A
+        # fixed threshold such as "the drop must be at least 40 pixels" would be wrong.
         reference_width = self.reference_width(frames)
 
         # CHECK 1 - drop_started_from_height
         #
-        # Vogliamo verificare che il soggetto sia partito da un rialzo.
-        # Prendiamo:
-        # - `start_y`: la mediana delle caviglie prima dell'atterraggio;
-        # - `landing_y`: la posizione delle caviglie all'initial contact.
+        # Check whether the subject started from a box.
         #
-        # Se il soggetto e' sceso dal box, landing_y deve essere abbastanza piu'
-        # grande di start_y, perche' le caviglie sono scese nell'immagine.
+        # First use the trigger measured during capture: recording starts only
+        # when ankles move downward from the stable box baseline. This is more
+        # reliable than reconstructing the whole box-to-floor drop from the
+        # saved frames, because saved frames intentionally start at jump start.
+        #
+        # As fallback, estimate the drop from the saved sequence:
+        # - `start_y`: median ankle position before landing;
+        # - `landing_y`: ankle position at initial contact.
         landing_y = float(ankle_y[initial_contact_index])
         pre_window = ankle_y[:max(1, initial_contact_index)]
         start_y = float(np.median(pre_window)) if len(pre_window) else float(ankle_y[0])
-        drop = landing_y - start_y
-        min_drop = self.min_drop_height_ratio * reference_width
+        frame_drop = landing_y - start_y
+        trigger_drop = self.drop_trigger_value(frames)
+        trigger_threshold = self.required_drop_value(frames)
+        if trigger_drop is not None and trigger_threshold is not None:
+            drop = trigger_drop
+            min_drop = trigger_threshold
+        else:
+            drop = frame_drop
+            min_drop = self.min_drop_height_ratio * reference_width
 
-        # CHECK 2 - two_foot_contact
+        # CHECK 2 - second_jump
         #
-        # Al frame di contatto, controlliamo se le due caviglie sono circa alla
-        # stessa altezza verticale. Se una caviglia e' molto piu' alta/bassa
-        # dell'altra, probabilmente l'atterraggio non e' a due piedi o YOLO ha
-        # perso una gamba.
-        contact_diff = abs(
-            frames[initial_contact_index].keypoints_xy[LEFT_ANKLE][1]
-            - frames[initial_contact_index].keypoints_xy[RIGHT_ANKLE][1]
-        )
-        max_contact_diff = self.max_two_foot_contact_ratio * reference_width
-
-        # CHECK 3 - second_jump
+        # After landing and maximum flexion, the drop jump requires a second
+        # jump. Search in following frames:
+        # - `second_lift`: how much ankles rise relative to landing;
+        # - `body_lift`: how much body center rises relative to landing.
         #
-        # Dopo l'atterraggio e la massima flessione, il drop jump prevede un
-        # secondo salto. Lo cerchiamo nei frame successivi:
-        # - `second_lift`: quanto risalgono le caviglie rispetto al landing;
-        # - `body_lift`: quanto risale il centro corpo rispetto al landing.
-        #
-        # Usiamo il massimo dei due per essere un po' robusti: a volte YOLO
-        # vede meglio le caviglie, a volte il centro corpo.
+        # Use the maximum of the two for robustness: sometimes YOLO sees ankles
+        # better, sometimes the body center.
         second_start = max(max_knee_flexion_index, initial_contact_index + 1)
         second_end = min(len(frames), second_start + self.second_jump_window_frames)
         if second_end > second_start:
-            second_lift = landing_y - float(np.min(ankle_y[second_start:second_end]))
-            body_lift = float(body_y[initial_contact_index] - np.min(body_y[second_start:second_end]))
+            second_window_ankle = ankle_y[second_start:second_end]
+            second_window_body = body_y[second_start:second_end]
+            second_lift = landing_y - float(np.min(second_window_ankle))
+            body_lift = float(body_y[initial_contact_index] - np.min(second_window_body))
+            second_takeoff_index = second_start + int(np.argmin(second_window_ankle))
         else:
             second_lift = 0.0
             body_lift = 0.0
+            second_takeoff_index = second_start
         jump_lift = max(second_lift, body_lift)
         min_second_jump = self.min_second_jump_ratio * reference_width
+
+        # CHECK 3 - stable_after_second_landing
+        #
+        # After the second jump, find the next landing as the first frame after
+        # takeoff where ankles return close to the first landing level. Then
+        # verify that the body/ankles do not keep dropping substantially, which
+        # would suggest the subject lost balance or fell.
+        second_landing_index = self.find_second_landing_index(
+            ankle_y=ankle_y,
+            landing_y=landing_y,
+            second_takeoff_index=second_takeoff_index,
+            reference_width=reference_width,
+        )
+        max_fall = self.max_post_landing_fall_ratio * reference_width
+        if second_landing_index is not None:
+            post_ankle = ankle_y[second_landing_index:]
+            post_body = body_y[second_landing_index:]
+            ankle_fall = float(np.max(post_ankle) - ankle_y[second_landing_index]) if len(post_ankle) else 0.0
+            body_fall = float(np.max(post_body) - body_y[second_landing_index]) if len(post_body) else 0.0
+            post_landing_fall = max(ankle_fall, body_fall)
+        else:
+            post_landing_fall = float("inf")
 
         checks = [
             ProtocolCheck(
@@ -155,16 +176,16 @@ class DropJumpProtocolValidator:
                 threshold=min_drop,
             ),
             ProtocolCheck(
-                name="two_foot_contact",
-                passed=bool(contact_diff <= max_contact_diff),
-                value=contact_diff,
-                threshold=max_contact_diff,
-            ),
-            ProtocolCheck(
                 name="second_jump",
                 passed=bool(jump_lift >= min_second_jump),
                 value=jump_lift,
                 threshold=min_second_jump,
+            ),
+            ProtocolCheck(
+                name="stable_after_second_landing",
+                passed=bool(post_landing_fall <= max_fall),
+                value=post_landing_fall,
+                threshold=max_fall,
             ),
         ]
         return DropJumpProtocolResult(
@@ -174,15 +195,35 @@ class DropJumpProtocolValidator:
 
 
     @staticmethod
+    def drop_trigger_value(frames: list[Any]) -> float | None:
+        """Return the capture-time drop trigger value when available."""
+
+        for frame in frames:
+            value = getattr(frame, "drop_trigger_px", None)
+            if value is not None:
+                return float(value)
+        return None
+
+    @staticmethod
+    def required_drop_value(frames: list[Any]) -> float | None:
+        """Return the capture-time required drop threshold when available."""
+
+        for frame in frames:
+            value = getattr(frame, "required_drop_px", None)
+            if value is not None:
+                return float(value)
+        return None
+
+    @staticmethod
     def ankle_mean_y(frame: Any) -> float:
-        """Media verticale tra caviglia sinistra e destra."""
+        """Average vertical coordinate between left and right ankles."""
 
         k = frame.keypoints_xy
         return float((k[LEFT_ANKLE][1] + k[RIGHT_ANKLE][1]) / 2.0)
 
     @staticmethod
     def reference_width(frames: list[Any]) -> float:
-        """Scala di riferimento: mediana della larghezza spalle nei frame."""
+        """Reference scale: median shoulder width across frames."""
 
         shoulder_widths = [
             distance(frame.keypoints_xy[LEFT_SHOULDER], frame.keypoints_xy[RIGHT_SHOULDER])
@@ -191,6 +232,24 @@ class DropJumpProtocolValidator:
         median_width = float(np.median(shoulder_widths))
         return max(median_width, 1e-6)
 
+    def find_second_landing_index(
+        self,
+        ankle_y: np.ndarray,
+        landing_y: float,
+        second_takeoff_index: int,
+        reference_width: float,
+    ) -> int | None:
+        """Find the second landing after the rebound jump."""
+
+        if second_takeoff_index >= len(ankle_y) - 2:
+            return None
+        landing_tolerance = 0.10 * reference_width
+        search = ankle_y[second_takeoff_index + 1 :]
+        candidates = np.where(search >= landing_y - landing_tolerance)[0]
+        if len(candidates) == 0:
+            return None
+        return second_takeoff_index + 1 + int(candidates[0])
+
     def detect_drop_start(
         self,
         current_ankle_y: float,
@@ -198,6 +257,6 @@ class DropJumpProtocolValidator:
         body_scale_px: float,
         min_drop_ratio: float,
     ) -> bool:
-        """Utility per decidere se una discesa supera la soglia di trigger."""
+        """Return whether a descent exceeds the trigger threshold."""
 
         return bool(current_ankle_y - baseline_ankle_y >= min_drop_ratio * max(body_scale_px, 1e-6))

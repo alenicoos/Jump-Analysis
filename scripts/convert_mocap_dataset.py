@@ -15,7 +15,7 @@ from jump_analysis.data.mocap_dataset import KinematicDataConverter
 
 
 def main() -> None:
-    """Converte tutti i soggetti o un singolo soggetto di debug."""
+    """Convert all subjects or one debug subject."""
 
     parser = argparse.ArgumentParser(
         description="Convert the 183-athlete Kinematic_Data dataset to the 37 front-view LESS features."
@@ -27,7 +27,7 @@ def main() -> None:
 
     converter = KinematicDataConverter.from_path(args.root)
     if args.subject:
-        # Modalita' rapida per controllare un soggetto senza convertire 26GB.
+        # Quick mode to inspect one subject without converting the full dataset.
         row = converter.convert_subject(args.subject)
         import pandas as pd
 
