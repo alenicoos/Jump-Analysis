@@ -28,6 +28,8 @@ final class CameraManager: NSObject, ObservableObject {
     private var liveFrameHandler: ((Data) -> Void)?
     private var liveFrameInterval: TimeInterval = 0.2
     private var lastLiveFrameSentAt = Date.distantPast
+    private let liveStreamCompressionQuality: CGFloat = 0.38
+    private let liveStreamMaxDimension: CGFloat = 640
 
     private var supportsCameraSwitching: Bool {
         #if targetEnvironment(macCatalyst)
@@ -388,9 +390,18 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate {
 
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         let image = CIImage(cvPixelBuffer: pixelBuffer)
-        guard let cgImage = ciContext.createCGImage(image, from: image.extent) else { return }
-        let uiImage = UIImage(cgImage: cgImage)
-        guard let jpegData = uiImage.jpegData(compressionQuality: 0.55) else { return }
+        let extent = image.extent
+        let maxDimension = max(extent.width, extent.height)
+        let scale = min(1.0, liveStreamMaxDimension / max(maxDimension, 1.0))
+        let scaledImage = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) else { return }
+        guard
+            let jpegData = ciContext.jpegRepresentation(
+                of: scaledImage,
+                colorSpace: colorSpace,
+                options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: liveStreamCompressionQuality]
+            )
+        else { return }
         handler(jpegData)
     }
 }

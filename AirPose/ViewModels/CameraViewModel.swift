@@ -54,6 +54,7 @@ final class CameraViewModel: ObservableObject {
     private var liveGuidanceSocket: URLSessionWebSocketTask?
     private var lastSpokenGuidance: String?
     private var lastSpokenGuidanceAt: Date?
+    private var liveFrameStreamingEnabled = false
 
     init(
         jumpStore: JumpStore,
@@ -91,11 +92,11 @@ final class CameraViewModel: ObservableObject {
     }
 
     var canSendForAnalysis: Bool {
-        recordedVideoURL != nil || settingsStore.settings.mockModeEnabled
+        AppPlatform.isDesktopDemo && (recordedVideoURL != nil || settingsStore.settings.mockModeEnabled)
     }
 
     var canUseRecordedFallback: Bool {
-        AppPlatform.isDesktopDemo || canSendForAnalysis
+        AppPlatform.isDesktopDemo
     }
 
     var accountProfile: UserProfile {
@@ -171,19 +172,20 @@ final class CameraViewModel: ObservableObject {
         liveGuidancePhase = "connecting"
         liveGuidanceMessage = "Connecting live guidance..."
         lastSpokenGuidance = nil
+        liveFrameStreamingEnabled = true
 
         let task = URLSession.shared.webSocketTask(with: websocketURL)
         liveGuidanceSocket = task
         task.resume()
         receiveLiveGuidanceMessages()
-        cameraManager.startPreviewFrameDelivery(frameInterval: 0.2) { [weak self] data in
+        cameraManager.startPreviewFrameDelivery(frameInterval: 0.15) { [weak self] data in
             guard let self else { return }
             self.sendLiveFrame(data)
         }
     }
 
     func stopLiveGuidance() {
-        cameraManager.stopPreviewFrameDelivery()
+        stopLiveFrameStreaming()
         if let liveGuidanceSocket {
             let stopMessage = ["type": "stop"]
             if let data = try? JSONSerialization.data(withJSONObject: stopMessage),
@@ -293,6 +295,7 @@ final class CameraViewModel: ObservableObject {
             maxKneeFlexionRightKneeAngleDeg: analysis.maxKneeFlexionRightKneeAngleDeg,
             landingAsymmetryRatio: analysis.landingAsymmetryRatio,
             kneeAsymmetryRatio: analysis.kneeAsymmetryRatio,
+            jumpGraph: analysis.jumpGraph,
             imuRecording: analysis.imuRecording
         )
     }
@@ -343,7 +346,7 @@ final class CameraViewModel: ObservableObject {
                         self.liveGuidanceMessage = error.localizedDescription
                         self.errorMessage = "Live guidance disconnected: \(error.localizedDescription)"
                     }
-                    self.cameraManager.stopPreviewFrameDelivery()
+                    self.stopLiveFrameStreaming()
                 }
             case .success(let message):
                 Task { @MainActor in
@@ -391,11 +394,11 @@ final class CameraViewModel: ObservableObject {
         case "stop_streaming":
             liveGuidanceState = .active
             liveGuidanceMessage = text
-            cameraManager.stopPreviewFrameDelivery()
+            stopLiveFrameStreaming()
         case "analysis_result":
             liveGuidanceState = .completed
             liveAnalysisSummary = text
-            cameraManager.stopPreviewFrameDelivery()
+            stopLiveFrameStreaming()
             liveGuidanceSocket?.cancel(with: .normalClosure, reason: nil)
             liveGuidanceSocket = nil
             if let analysis = decodeLiveAnalysisResponse(from: object) {
@@ -416,7 +419,7 @@ final class CameraViewModel: ObservableObject {
         case "error":
             liveGuidanceState = .failed
             errorMessage = text
-            cameraManager.stopPreviewFrameDelivery()
+            stopLiveFrameStreaming()
         default:
             break
         }
@@ -426,7 +429,7 @@ final class CameraViewModel: ObservableObject {
             let isUrgent = level == "warning" || level == "error"
             let recentlySpokenSameText =
                 text == lastSpokenGuidance &&
-                (lastSpokenGuidanceAt.map { now.timeIntervalSince($0) < 5.0 } ?? false)
+                (lastSpokenGuidanceAt.map { now.timeIntervalSince($0) < 2.0 } ?? false)
 
             guard !recentlySpokenSameText else { return }
 
@@ -436,8 +439,6 @@ final class CameraViewModel: ObservableObject {
             utterance.rate = 0.5
             if isUrgent {
                 speechSynthesizer.stopSpeaking(at: .immediate)
-            } else if speechSynthesizer.isSpeaking {
-                return
             }
             speechSynthesizer.speak(utterance)
         }
@@ -451,6 +452,7 @@ final class CameraViewModel: ObservableObject {
     }
 
     private func sendLiveFrame(_ data: Data) {
+        guard liveFrameStreamingEnabled else { return }
         guard let liveGuidanceSocket else { return }
         let payload: [String: Any] = [
             "type": "frame",
@@ -469,9 +471,14 @@ final class CameraViewModel: ObservableObject {
             Task { @MainActor in
                 self.liveGuidanceState = .failed
                 self.errorMessage = "Live guidance upload failed: \(error.localizedDescription)"
-                self.cameraManager.stopPreviewFrameDelivery()
+                self.stopLiveFrameStreaming()
             }
         }
+    }
+
+    private func stopLiveFrameStreaming() {
+        liveFrameStreamingEnabled = false
+        cameraManager.stopPreviewFrameDelivery()
     }
 
     private func liveGuidanceURL(heightCm: Double) -> URL? {

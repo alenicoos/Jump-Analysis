@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -24,6 +25,9 @@ from jump_analysis.video.yolo_video import (
     required_visible,
     select_pose,
 )
+
+
+logger = logging.getLogger("jump_analysis.live_session")
 
 
 @dataclass
@@ -61,8 +65,10 @@ class LiveGuidanceProcessor:
 
         self.phase = "floor_setup"
         self.locked_track_id: int | None = None
-        self.floor_buffer = StablePoseBuffer(min_frames=12)
-        self.box_buffer = StablePoseBuffer(min_frames=12)
+        # Live phone streaming is much noisier than the desktop script path, so
+        # use a shorter window and a looser stillness threshold for mobile.
+        self.floor_buffer = StablePoseBuffer(maxlen=12, min_frames=6, max_motion_ratio=0.20)
+        self.box_buffer = StablePoseBuffer(maxlen=12, min_frames=6, max_motion_ratio=0.20)
         self.floor_body_height_buffer: deque[float] = deque(maxlen=12)
         self.prep_feet_y: deque[float] = deque(maxlen=45)
         self.prep_body_height: deque[float] = deque(maxlen=45)
@@ -85,6 +91,13 @@ class LiveGuidanceProcessor:
         self.second_landing_seen = False
         self.stable_after_landing_count = 0
         self.frame_index = 0
+        self.last_logged_frame_index = 0
+
+        logger.info(
+            "Live session initialized phase=%s height_cm=%.2f",
+            self.phase,
+            self.height_cm,
+        )
 
     def process_text_message(self, message_text: str) -> list[dict[str, Any]]:
         try:
@@ -94,7 +107,7 @@ class LiveGuidanceProcessor:
 
         message_type = payload.get("type")
         if message_type == "stop":
-            self.phase = "stopped"
+            self._set_phase("stopped", "received client stop message")
             return [self._event("status", self.phase, "Live guidance stopped.", speak=False).as_dict()]
         if message_type != "frame":
             return []
@@ -119,6 +132,14 @@ class LiveGuidanceProcessor:
         result = self.model.track(decoded, stream=False, persist=True, verbose=False)[0]
         selection = select_pose(result, self.locked_track_id)
         self.frame_index += 1
+        if self.frame_index - self.last_logged_frame_index >= 15:
+            logger.info(
+                "Live stream progress phase=%s frames_seen=%s frames_buffered=%s",
+                self.phase,
+                self.frame_index,
+                len(self.frames),
+            )
+            self.last_logged_frame_index = self.frame_index
 
         if self.phase == "completed":
             events = [self._event("status", self.phase, "Live analysis already completed.", speak=False)]
@@ -160,11 +181,33 @@ class LiveGuidanceProcessor:
             self.floor_body_height_buffer.append(body_height)
             stable = self.floor_buffer.stable_pose()
             if stable is None:
-                return [self._event("guidance", self.phase, "Stand on the floor facing the camera and stay still.", speak=False)]
+                if self.frame_index % 15 == 0:
+                    snapshot = self.floor_buffer.stability_snapshot()
+                    logger.info(
+                        "Floor setup waiting buffered_frames=%s min_frames=%s motion_px=%s motion_threshold_px=%s body_scale_px=%s",
+                        snapshot["buffered_frames"],
+                        snapshot["min_frames"],
+                        (
+                            f"{float(snapshot['motion_px']):.3f}"
+                            if snapshot["motion_px"] is not None
+                            else "pending"
+                        ),
+                        (
+                            f"{float(snapshot['motion_threshold_px']):.3f}"
+                            if snapshot["motion_threshold_px"] is not None
+                            else "pending"
+                        ),
+                        (
+                            f"{float(snapshot['body_scale_px']):.3f}"
+                            if snapshot["body_scale_px"] is not None
+                            else "pending"
+                        ),
+                    )
+                return [self._event("guidance", self.phase, "Stand on the floor facing the camera and stay still.")]
 
             self.floor_pose = stable
             self.floor_body_height_px = float(np.median(self.floor_body_height_buffer))
-            self.phase = "box_setup"
+            self._set_phase("box_setup", "stable floor pose acquired")
             return [self._event("guidance", self.phase, "Good. Now step onto the box and stay still.", level="success")]
 
         if self.setup_calibration is None:
@@ -175,12 +218,12 @@ class LiveGuidanceProcessor:
 
             if box_height_px <= min_box_height_px:
                 self.box_buffer.clear()
-                return [self._event("guidance", self.phase, "Step onto the box and keep both feet clearly higher than the floor pose.", speak=False)]
+                return [self._event("guidance", self.phase, "Step onto the box and keep both feet clearly higher than the floor pose.")]
 
             self.box_buffer.add(kpts_xy)
             stable_box = self.box_buffer.stable_pose()
             if stable_box is None:
-                return [self._event("guidance", self.phase, "Stay still on the box for setup.", speak=False)]
+                return [self._event("guidance", self.phase, "Stay still on the box for setup.")]
 
             validation = self.validator.validate_floor_and_box(
                 self.floor_pose,
@@ -194,7 +237,7 @@ class LiveGuidanceProcessor:
                 return [self._event("guidance", self.phase, message, level="error")]
 
             self.setup_calibration = validation.calibration
-            self.phase = "armed"
+            self._set_phase("armed", "floor and box setup validated")
             self.prep_feet_y.clear()
             self.prep_body_height.clear()
             return [self._event("guidance", self.phase, "Setup complete. Stay still on the box. Recording starts when you drop.", level="success")]
@@ -204,14 +247,14 @@ class LiveGuidanceProcessor:
             self.prep_feet_y.append(feet_y)
             self.prep_body_height.append(body_height)
             if len(self.prep_feet_y) < 8:
-                return [self._event("guidance", self.phase, "Hold still on the box. I am arming the recording.", speak=False)]
+                return [self._event("guidance", self.phase, "Hold still on the box. I am arming the recording.")]
 
             baseline = float(np.median(self.prep_feet_y))
             required_drop_px = 0.06 * float(np.median(self.prep_body_height))
             current_drop_px = feet_y - baseline
             if len(self.prep_feet_y) >= 30 and current_drop_px > required_drop_px:
                 self.recording_started_monotonic = now
-                self.phase = "recording"
+                self._set_phase("recording", f"drop detected current_drop_px={current_drop_px:.2f} required_drop_px={required_drop_px:.2f}")
                 self.frames = [
                     YoloPoseFrame(
                         self.frame_index,
@@ -225,7 +268,7 @@ class LiveGuidanceProcessor:
                     )
                 ]
                 return [self._event("guidance", self.phase, "Drop detected. Land and immediately jump again.", level="success")]
-            return [self._event("guidance", self.phase, "Ready when you drop.", speak=False)]
+            return [self._event("guidance", self.phase, "Ready when you drop.")]
 
         self.frames.append(
             YoloPoseFrame(
@@ -239,8 +282,8 @@ class LiveGuidanceProcessor:
         )
         self._update_jump_completion(feet_y, body_height)
         if self.phase != "completed":
-            return [self._event("guidance", self.phase, "Recording. Land and perform the rebound jump.", speak=False)]
-        self.phase = "analyzing"
+            return [self._event("guidance", self.phase, "Recording. Land and perform the rebound jump.")]
+        self._set_phase("analyzing", f"jump completion detected buffered_frames={len(self.frames)}")
         return [
             self._event("guidance", self.phase, "Jump captured. Stop moving while I analyze it.", level="success"),
             LiveGuidanceEvent(
@@ -258,6 +301,13 @@ class LiveGuidanceProcessor:
 
         self.analysis_started = True
         fps = self._estimated_fps()
+        logger.info(
+            "Live analysis started phase=%s frames=%s estimated_fps=%.3f shoulder_width_m=%.4f",
+            self.phase,
+            len(self.frames),
+            fps,
+            self.setup_calibration.measured_shoulder_width_m,
+        )
         result = self.analysis_service.analyze_pose_frames(
             self.frames,
             fps=fps,
@@ -266,7 +316,13 @@ class LiveGuidanceProcessor:
         )
         self.last_analysis_payload = result.as_json()
         self.analysis_completed = True
-        self.phase = "completed"
+        self._set_phase("completed", f"analysis completed prediction={result.prediction} protocol_passed={result.protocol_passed}")
+        logger.info(
+            "Live analysis result sent prediction=%s protocol_passed=%s anomaly_score=%.3f",
+            result.prediction,
+            result.protocol_passed,
+            result.anomaly_score,
+        )
         return [
             self._event("guidance", self.phase, result.summary, level="success").as_dict(),
             LiveGuidanceEvent(
@@ -302,7 +358,20 @@ class LiveGuidanceProcessor:
             else:
                 self.stable_after_landing_count = max(0, self.stable_after_landing_count - 1)
             if self.stable_after_landing_count >= 5:
-                self.phase = "completed"
+                self._set_phase("completed", "stable second landing reached")
+
+    def _set_phase(self, phase: str, reason: str) -> None:
+        if phase == self.phase:
+            return
+        logger.info(
+            "Live phase transition %s -> %s reason=%s frame_index=%s buffered_frames=%s",
+            self.phase,
+            phase,
+            reason,
+            self.frame_index,
+            len(self.frames),
+        )
+        self.phase = phase
 
     def _estimated_fps(self) -> float:
         if len(self.frames) < 2:
@@ -334,7 +403,7 @@ class LiveGuidanceProcessor:
         key = (phase, text)
         if speak:
             now = time.monotonic()
-            min_repeat_seconds = 4.0 if level in {"warning", "error"} else 7.0
+            min_repeat_seconds = 3.0 if level in {"warning", "error"} else 4.5
             last_spoken_at = self.last_spoken_by_message_key.get(key, 0.0)
             if now - last_spoken_at < min_repeat_seconds:
                 speak = False

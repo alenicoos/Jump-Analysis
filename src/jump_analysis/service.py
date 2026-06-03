@@ -15,11 +15,14 @@ from jump_analysis.models import RobustAnomalyModel
 from jump_analysis.video import compare_to_reference, extract_front_features_from_yolo_frames
 from jump_analysis.video.yolo_video import (
     YoloPoseFrame,
+    ankle_mean_y,
     estimate_person_height_px,
+    knee_flexion_proxy,
     normalize_keypoints_to_mocap_scale,
     required_visible,
     select_pose,
 )
+from jump_analysis.features.front_2d_features import body_keypoint
 
 logger = logging.getLogger("jump_analysis.service")
 
@@ -41,6 +44,21 @@ class ProtocolCheckResult:
     passed: bool
     value: float
     threshold: float
+
+
+@dataclass
+class JumpGraphPoint:
+    elapsed_time_s: float
+    ankle_height_px: float
+    body_height_px: float
+    knee_flexion_proxy_deg: float
+
+
+@dataclass
+class JumpGraph:
+    initial_contact_time_s: float
+    max_knee_flexion_time_s: float
+    points: list[JumpGraphPoint]
 
 
 @dataclass
@@ -69,6 +87,7 @@ class JumpAnalysisResult:
     max_knee_flexion_right_knee_angle_deg: float
     landing_asymmetry_ratio: float
     knee_asymmetry_ratio: float
+    jump_graph: JumpGraph | None = None
     imu_recording: IMURecordingSummary | None = None
 
     def as_json(self) -> dict[str, object]:
@@ -186,6 +205,11 @@ class VideoAnalysisService:
             float(analysis["anomaly_score"]),
             analysis["worst_feature"],
         )
+        jump_graph = self._build_jump_graph(
+            frames,
+            initial_contact_index=int(metadata["ic_valid_frame"]),
+            max_knee_flexion_index=int(metadata["kfmax_valid_frame"]),
+        )
 
         return JumpAnalysisResult(
             timestamp=analysis_started_at,
@@ -220,6 +244,7 @@ class VideoAnalysisService:
             max_knee_flexion_right_knee_angle_deg=float(features["kfmax_right_hip_knee_ankle_frontal_angle"]),
             landing_asymmetry_ratio=float(features["ic_left_right_ankle_y_difference_ratio"]),
             knee_asymmetry_ratio=float(features["kfmax_left_right_knee_y_difference_ratio"]),
+            jump_graph=jump_graph,
             imu_recording=imu_recording,
         )
 
@@ -281,10 +306,38 @@ class VideoAnalysisService:
                 keypoints_xy=normalize_keypoints_to_mocap_scale(raw_frame[1], estimated_shoulder_width_m),
                 keypoints_conf=raw_frame[2],
                 box_xyxy=raw_frame[3],
+                timestamp_s=float(raw_frame[0]) / max(fps, 1e-6),
             )
             for raw_frame in raw_frames
         ]
         return frames, fps, estimated_shoulder_width_m
+
+    def _build_jump_graph(
+        self,
+        frames: list[YoloPoseFrame],
+        initial_contact_index: int,
+        max_knee_flexion_index: int,
+    ) -> JumpGraph | None:
+        if not frames:
+            return None
+
+        start_time_s = float(frames[0].timestamp_s)
+        landing_ankle_y = ankle_mean_y(frames[initial_contact_index])
+        landing_body_y = float(body_keypoint(frames[initial_contact_index].keypoints_xy)[1])
+        points = [
+            JumpGraphPoint(
+                elapsed_time_s=max(float(frame.timestamp_s) - start_time_s, 0.0),
+                ankle_height_px=landing_ankle_y - ankle_mean_y(frame),
+                body_height_px=landing_body_y - float(body_keypoint(frame.keypoints_xy)[1]),
+                knee_flexion_proxy_deg=knee_flexion_proxy(frame),
+            )
+            for frame in frames
+        ]
+        return JumpGraph(
+            initial_contact_time_s=points[initial_contact_index].elapsed_time_s,
+            max_knee_flexion_time_s=points[max_knee_flexion_index].elapsed_time_s,
+            points=points,
+        )
 
     def _get_model(self) -> YOLO:
         if self._model is None:

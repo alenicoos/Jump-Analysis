@@ -276,11 +276,23 @@ class StablePoseBuffer:
 
         self._items.append(np.asarray(keypoints_xy, dtype=float).copy())
 
-    def stable_pose(self) -> np.ndarray | None:
-        """Return the frame median if movement is below threshold."""
+    def size(self) -> int:
+        """Return the number of buffered frames."""
 
+        return len(self._items)
+
+    def stability_snapshot(self) -> dict[str, float | int | None]:
+        """Return current stability metrics for logging/debugging."""
+
+        snapshot: dict[str, float | int | None] = {
+            "buffered_frames": len(self._items),
+            "min_frames": self.min_frames,
+            "motion_px": None,
+            "motion_threshold_px": None,
+            "body_scale_px": None,
+        }
         if len(self._items) < self.min_frames:
-            return None
+            return snapshot
 
         stack = np.stack(list(self._items), axis=0)
         median_pose = np.median(stack, axis=0)
@@ -297,6 +309,22 @@ class StablePoseBuffer:
         motion = np.linalg.norm(stack[:, tracked, :] - median_pose[tracked], axis=2)
         motion_px = float(np.nanpercentile(motion, 90))
         body_scale = CalibrationPose(median_pose).body_scale
-        if motion_px <= self.max_motion_ratio * max(body_scale, 1e-6):
+        snapshot["motion_px"] = motion_px
+        snapshot["body_scale_px"] = body_scale
+        snapshot["motion_threshold_px"] = self.max_motion_ratio * max(body_scale, 1e-6)
+        return snapshot
+
+    def stable_pose(self) -> np.ndarray | None:
+        """Return the frame median if movement is below threshold."""
+
+        snapshot = self.stability_snapshot()
+        if snapshot["buffered_frames"] < self.min_frames:
+            return None
+
+        stack = np.stack(list(self._items), axis=0)
+        median_pose = np.median(stack, axis=0)
+        motion_px = float(snapshot["motion_px"] or 0.0)
+        motion_threshold_px = float(snapshot["motion_threshold_px"] or 0.0)
+        if motion_px <= motion_threshold_px:
             return median_pose
         return None

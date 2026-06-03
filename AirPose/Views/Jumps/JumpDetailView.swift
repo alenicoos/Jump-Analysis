@@ -1,3 +1,4 @@
+import Charts
 import SwiftUI
 
 struct JumpDetailView: View {
@@ -11,6 +12,10 @@ struct JumpDetailView: View {
             VStack(spacing: 20) {
                 JumpCardView(jump: jump, showsFeedback: true)
                     .frame(maxWidth: min(AirPoseLayout.contentMaxWidth(for: size), 920))
+
+                if let jumpGraph = jump.jumpGraph, !jumpGraph.points.isEmpty {
+                    jumpGraphSection(jumpGraph)
+                }
 
                 detailSection
 
@@ -122,6 +127,58 @@ struct JumpDetailView: View {
         }
     }
 
+    private func jumpGraphSection(_ jumpGraph: JumpAnalysisResponse.JumpGraph) -> some View {
+        GlassCard {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Jump Graph")
+                    .font(.headline)
+
+                Chart {
+                    ForEach(jumpGraph.points) { point in
+                        LineMark(
+                            x: .value("Time", point.elapsedTimeS),
+                            y: .value("Ankle Height", point.ankleHeightPx)
+                        )
+                        .foregroundStyle(.blue)
+                        .interpolationMethod(.catmullRom)
+
+                        LineMark(
+                            x: .value("Time", point.elapsedTimeS),
+                            y: .value("Body Height", point.bodyHeightPx)
+                        )
+                        .foregroundStyle(.green)
+                        .interpolationMethod(.catmullRom)
+                    }
+
+                    RuleMark(x: .value("Initial Contact", jumpGraph.initialContactTimeS))
+                        .foregroundStyle(.orange)
+                        .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+
+                    RuleMark(x: .value("Max Knee Flexion", jumpGraph.maxKneeFlexionTimeS))
+                        .foregroundStyle(.red)
+                        .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+                }
+                .frame(height: 220)
+                .chartXAxisLabel("Seconds")
+                .chartYAxisLabel("Height Change")
+
+                HStack(spacing: 14) {
+                    graphLegendLabel("Ankles", color: .blue)
+                    graphLegendLabel("Body", color: .green)
+                    graphLegendLabel("Initial Contact", color: .orange)
+                    graphLegendLabel("Max Flexion", color: .red)
+                }
+                .font(.footnote)
+
+                Text("The graph shows how the ankles and body move relative to landing. Positive values mean the athlete is higher than the initial-contact position.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
     private func videoSection(_ videoURL: URL) -> some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 10) {
@@ -146,6 +203,16 @@ struct JumpDetailView: View {
                 .multilineTextAlignment(.trailing)
         }
         .font(.subheadline)
+    }
+
+    private func graphLegendLabel(_ title: String, color: Color) -> some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(color)
+                .frame(width: 8, height: 8)
+            Text(title)
+                .foregroundStyle(.secondary)
+        }
     }
 
     private func imuDeviceSummary(_ device: JumpAnalysisResponse.IMUDeviceSummary) -> String {

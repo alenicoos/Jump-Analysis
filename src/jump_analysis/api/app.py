@@ -10,10 +10,38 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, W
 from jump_analysis.live_session import LiveGuidanceProcessor
 from jump_analysis.service import VideoAnalysisService
 
+
+def _configure_jump_analysis_logging() -> None:
+    formatter = logging.Formatter(
+        "%(levelname)s:%(name)s:%(message)s"
+    )
+    jump_logger = logging.getLogger("jump_analysis")
+    if not any(getattr(handler, "_jump_analysis_handler", False) for handler in jump_logger.handlers):
+        handler = logging.StreamHandler()
+        handler._jump_analysis_handler = True  # type: ignore[attr-defined]
+        handler.setFormatter(formatter)
+        jump_logger.addHandler(handler)
+    jump_logger.setLevel(logging.INFO)
+    jump_logger.propagate = False
+
+
+_configure_jump_analysis_logging()
+
 app = FastAPI(title="Jump Analysis API", version="0.1.0")
 service = VideoAnalysisService()
 logger = logging.getLogger("jump_analysis.api")
 logger.setLevel(logging.INFO)
+
+
+def _log_live_event(event: dict[str, object]) -> None:
+    logger.info(
+        "Live event sending type=%s phase=%s level=%s speak=%s text=%s",
+        event.get("type"),
+        event.get("phase"),
+        event.get("level"),
+        event.get("speak"),
+        str(event.get("text", ""))[:160],
+    )
 
 
 @app.get("/health")
@@ -114,30 +142,39 @@ async def live_session(websocket: WebSocket) -> None:
     await websocket.accept()
 
     raw_height_cm = websocket.query_params.get("height_cm")
+    client_host = getattr(websocket.client, "host", "unknown")
+    client_port = getattr(websocket.client, "port", "unknown")
     try:
         height_cm = float(raw_height_cm) if raw_height_cm is not None else 0.0
     except ValueError as error:
-        await websocket.send_json(
-            {
-                "type": "error",
-                "phase": "initializing",
-                "text": "height_cm must be a valid number.",
-                "level": "error",
-                "speak": True,
-            }
-        )
+        event = {
+            "type": "error",
+            "phase": "initializing",
+            "text": "height_cm must be a valid number.",
+            "level": "error",
+            "speak": True,
+        }
+        _log_live_event(event)
+        await websocket.send_json(event)
         raise ValueError("height_cm must be a valid number.") from error
 
+    logger.info(
+        "Live websocket connected client=%s:%s height_cm=%.2f",
+        client_host,
+        client_port,
+        height_cm,
+    )
+
     if height_cm <= 0:
-        await websocket.send_json(
-            {
-                "type": "error",
-                "phase": "initializing",
-                "text": "A positive athlete height is required before starting live guidance.",
-                "level": "error",
-                "speak": True,
-            }
-        )
+        event = {
+            "type": "error",
+            "phase": "initializing",
+            "text": "A positive athlete height is required before starting live guidance.",
+            "level": "error",
+            "speak": True,
+        }
+        _log_live_event(event)
+        await websocket.send_json(event)
         await websocket.close(code=1008)
         return
 
@@ -146,22 +183,34 @@ async def live_session(websocket: WebSocket) -> None:
         model=service._get_model(),
         height_cm=height_cm,
     )
-    await websocket.send_json(
-        {
-            "type": "status",
-            "phase": "floor_setup",
-            "text": "Live guidance connected. Stand on the floor facing the camera and stay still.",
-            "level": "info",
-            "speak": True,
-        }
-    )
+    connected_event = {
+        "type": "status",
+        "phase": "floor_setup",
+        "text": "Live guidance connected. Stand on the floor facing the camera and stay still.",
+        "level": "info",
+        "speak": True,
+    }
+    _log_live_event(connected_event)
+    await websocket.send_json(connected_event)
 
     try:
         while True:
             message = await websocket.receive_text()
+            logger.info(
+                "Live websocket message received phase=%s size_bytes=%s",
+                processor.phase,
+                len(message.encode("utf-8")),
+            )
             for event in processor.process_text_message(message):
+                _log_live_event(event)
                 await websocket.send_json(event)
             for event in processor.consume_pending_analysis():
+                _log_live_event(event)
                 await websocket.send_json(event)
     except WebSocketDisconnect:
-        logger.info("Live guidance websocket disconnected.")
+        logger.info(
+            "Live guidance websocket disconnected client=%s:%s final_phase=%s",
+            client_host,
+            client_port,
+            processor.phase,
+        )

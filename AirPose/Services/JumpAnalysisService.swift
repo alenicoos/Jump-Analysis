@@ -142,6 +142,7 @@ struct JumpAnalysisService {
             maxKneeFlexionRightKneeAngleDeg: Double.random(in: 98...132),
             landingAsymmetryRatio: Double.random(in: 0.02...0.18),
             kneeAsymmetryRatio: Double.random(in: 0.01...0.14),
+            jumpGraph: nil,
             imuRecording: nil
         )
     }

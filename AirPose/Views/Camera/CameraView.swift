@@ -138,7 +138,7 @@ struct CameraView: View {
                     Text("Desktop Demo Mode")
                         .font(.headline)
 
-                    Text("On Mac, import a local jump video and send it straight to the analysis server on `127.0.0.1`.")
+                    Text("On Mac, import a local jump video as a fallback clip and send it to the analysis server on `127.0.0.1`.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -159,7 +159,7 @@ struct CameraView: View {
                     Text("Camera access is off")
                         .font(.headline)
 
-                    Text("Allow camera permission in Settings to use the iPhone camera for jump recording.")
+                    Text("Allow camera permission in Settings to use the iPhone camera for live jump streaming.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -201,7 +201,7 @@ struct CameraView: View {
                         }
                     }
 
-                    if viewModel.canUseRecordedFallback {
+                    if AppPlatform.isDesktopDemo && viewModel.canUseRecordedFallback {
                         PrimaryActionButton(
                             title: "Analyze Recorded Fallback",
                             systemImage: "paperplane.fill",
@@ -229,7 +229,7 @@ struct CameraView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 } else if AppPlatform.supportsLiveCameraCapture {
-                    Text("The live preview is streamed to the server, which decides when setup is valid and when the jump starts.")
+                    Text("The live preview is streamed to the server, which decides when setup is valid, when the jump starts, and when final analysis is complete.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 } else if settingsStore.settings.mockModeEnabled {
@@ -380,12 +380,30 @@ struct CameraView: View {
             Spacer(minLength: 0)
 
             if AppPlatform.supportsLiveCameraCapture {
-                recordOverlayButton
+                iconOverlayButton(
+                    systemImage: viewModel.liveGuidanceState == .active || viewModel.liveGuidanceState == .connecting
+                        ? "stop.fill"
+                        : "waveform.and.mic",
+                    isDisabled: !viewModel.canStartLiveGuidance && viewModel.liveGuidanceState == .idle
+                ) {
+                    if viewModel.liveGuidanceState == .active || viewModel.liveGuidanceState == .connecting {
+                        viewModel.stopLiveGuidance()
+                    } else {
+                        viewModel.startLiveGuidance()
+                    }
+                }
             }
 
             Spacer(minLength: 0)
 
-            if AppPlatform.isDesktopDemo {
+            if AppPlatform.supportsLiveCameraCapture {
+                iconOverlayButton(
+                    systemImage: "arrow.triangle.2.circlepath.camera",
+                    isDisabled: viewModel.cameraManager.isRecording || !viewModel.cameraManager.isConfigured
+                ) {
+                    viewModel.switchCamera()
+                }
+            } else {
                 Circle()
                     .fill(Color.clear)
                     .frame(width: 48, height: 48)
@@ -411,8 +429,6 @@ struct CameraView: View {
                 }
             }
 
-            recordOverlayButton
-
             iconOverlayButton(
                 systemImage: "arrow.triangle.2.circlepath.camera",
                 isDisabled: viewModel.cameraManager.isRecording || !viewModel.cameraManager.isConfigured
@@ -422,45 +438,6 @@ struct CameraView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
-    }
-
-    private var recordOverlayButton: some View {
-        Button {
-            if viewModel.cameraManager.isRecording || viewModel.cameraManager.isPreparingRecording {
-                viewModel.stopRecording()
-            } else {
-                viewModel.startRecording()
-            }
-        } label: {
-            ZStack {
-                Circle()
-                    .fill(Color.white.opacity(recordButtonDisabled ? 0.35 : 0.96))
-                    .frame(width: 76, height: 76)
-
-                if viewModel.cameraManager.isRecording || viewModel.cameraManager.isPreparingRecording {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color.red)
-                        .frame(width: 26, height: 26)
-                } else {
-                    Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [Color.airPoseElectricBlue, Color.airPoseViolet],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(width: 58, height: 58)
-                        .overlay(
-                            Circle()
-                                .stroke(Color.white.opacity(0.18), lineWidth: 1)
-                        )
-                }
-            }
-            .shadow(color: .black.opacity(0.18), radius: 18, y: 8)
-        }
-        .disabled(recordButtonDisabled)
-        .accessibilityLabel(viewModel.cameraManager.isRecording || viewModel.cameraManager.isPreparingRecording ? "Stop Recording" : "Start Recording")
     }
 
     private func iconOverlayButton(systemImage: String, isDisabled: Bool, action: @escaping () -> Void) -> some View {
@@ -524,9 +501,9 @@ struct CameraView: View {
         case .idle:
             return "Ready to start a live guided jump session."
         case .uploading:
-            return "Analyzing the recorded fallback clip..."
+            return "Analyzing the imported fallback clip..."
         case .completed:
-            return "Recorded fallback analysis complete. Your jump has been saved to the Jumps tab."
+            return "Fallback clip analysis complete. Your jump has been saved to the Jumps tab."
         }
     }
 
@@ -549,13 +526,6 @@ struct CameraView: View {
             return .red
         }
         return .primary
-    }
-
-    private var recordButtonDisabled: Bool {
-        if viewModel.cameraManager.isRecording || viewModel.cameraManager.isPreparingRecording {
-            return false
-        }
-        return !viewModel.cameraManager.isConfigured
     }
 
     private func isCompactPhonePreview(for size: CGSize) -> Bool {

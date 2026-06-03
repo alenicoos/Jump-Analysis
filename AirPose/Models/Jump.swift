@@ -108,6 +108,7 @@ struct Jump: Identifiable, Codable, Equatable {
     let maxKneeFlexionRightKneeAngleDeg: Double
     let landingAsymmetryRatio: Double
     let kneeAsymmetryRatio: Double
+    let jumpGraph: JumpAnalysisResponse.JumpGraph?
     let imuRecording: JumpAnalysisResponse.IMURecordingSummary?
 
     init(
@@ -139,6 +140,7 @@ struct Jump: Identifiable, Codable, Equatable {
         maxKneeFlexionRightKneeAngleDeg: Double,
         landingAsymmetryRatio: Double,
         kneeAsymmetryRatio: Double,
+        jumpGraph: JumpAnalysisResponse.JumpGraph? = nil,
         imuRecording: JumpAnalysisResponse.IMURecordingSummary? = nil
     ) {
         self.id = id
@@ -169,6 +171,7 @@ struct Jump: Identifiable, Codable, Equatable {
         self.maxKneeFlexionRightKneeAngleDeg = maxKneeFlexionRightKneeAngleDeg
         self.landingAsymmetryRatio = landingAsymmetryRatio
         self.kneeAsymmetryRatio = kneeAsymmetryRatio
+        self.jumpGraph = jumpGraph
         self.imuRecording = imuRecording
     }
 
@@ -225,6 +228,7 @@ struct Jump: Identifiable, Codable, Equatable {
             maxKneeFlexionRightKneeAngleDeg: maxKneeFlexionRightKneeAngleDeg,
             landingAsymmetryRatio: landingAsymmetryRatio,
             kneeAsymmetryRatio: kneeAsymmetryRatio,
+            jumpGraph: jumpGraph,
             imuRecording: imuRecording
         )
     }
@@ -259,6 +263,7 @@ struct Jump: Identifiable, Codable, Equatable {
             maxKneeFlexionRightKneeAngleDeg: maxKneeFlexionRightKneeAngleDeg,
             landingAsymmetryRatio: landingAsymmetryRatio,
             kneeAsymmetryRatio: kneeAsymmetryRatio,
+            jumpGraph: jumpGraph,
             imuRecording: imuRecording
         )
     }
@@ -293,6 +298,7 @@ struct Jump: Identifiable, Codable, Equatable {
             maxKneeFlexionRightKneeAngleDeg: maxKneeFlexionRightKneeAngleDeg,
             landingAsymmetryRatio: landingAsymmetryRatio,
             kneeAsymmetryRatio: kneeAsymmetryRatio,
+            jumpGraph: jumpGraph,
             imuRecording: imuRecording
         )
     }
@@ -326,6 +332,7 @@ struct Jump: Identifiable, Codable, Equatable {
         case maxKneeFlexionRightKneeAngleDeg
         case landingAsymmetryRatio
         case kneeAsymmetryRatio
+        case jumpGraph
         case imuRecording
     }
 
@@ -367,6 +374,7 @@ struct Jump: Identifiable, Codable, Equatable {
         maxKneeFlexionRightKneeAngleDeg = try container.decodeIfPresent(Double.self, forKey: .maxKneeFlexionRightKneeAngleDeg) ?? 0
         landingAsymmetryRatio = try container.decodeIfPresent(Double.self, forKey: .landingAsymmetryRatio) ?? 0
         kneeAsymmetryRatio = try container.decodeIfPresent(Double.self, forKey: .kneeAsymmetryRatio) ?? 0
+        jumpGraph = try container.decodeIfPresent(JumpAnalysisResponse.JumpGraph.self, forKey: .jumpGraph)
         imuRecording = try container.decodeIfPresent(JumpAnalysisResponse.IMURecordingSummary.self, forKey: .imuRecording)
     }
 
@@ -400,6 +408,7 @@ struct Jump: Identifiable, Codable, Equatable {
         try container.encode(maxKneeFlexionRightKneeAngleDeg, forKey: .maxKneeFlexionRightKneeAngleDeg)
         try container.encode(landingAsymmetryRatio, forKey: .landingAsymmetryRatio)
         try container.encode(kneeAsymmetryRatio, forKey: .kneeAsymmetryRatio)
+        try container.encodeIfPresent(jumpGraph, forKey: .jumpGraph)
         try container.encodeIfPresent(imuRecording, forKey: .imuRecording)
     }
 }
