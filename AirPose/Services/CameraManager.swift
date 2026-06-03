@@ -15,13 +15,19 @@ final class CameraManager: NSObject, ObservableObject {
     let session = AVCaptureSession()
 
     private let sessionQueue = DispatchQueue(label: "com.airpose.camera.session")
+    private let videoDataOutputQueue = DispatchQueue(label: "com.airpose.camera.previewFrames")
     private let movieOutput = AVCaptureMovieFileOutput()
+    private let videoDataOutput = AVCaptureVideoDataOutput()
+    private let ciContext = CIContext()
     private var videoInput: AVCaptureDeviceInput?
     private var audioInput: AVCaptureDeviceInput?
     private var didRequestSetup = false
     private var isSettingUp = false
     private var isStartingRecording = false
     private var stopRequestedWhileStarting = false
+    private var liveFrameHandler: ((Data) -> Void)?
+    private var liveFrameInterval: TimeInterval = 0.2
+    private var lastLiveFrameSentAt = Date.distantPast
 
     private var supportsCameraSwitching: Bool {
         #if targetEnvironment(macCatalyst)
@@ -169,6 +175,21 @@ final class CameraManager: NSObject, ObservableObject {
         }
     }
 
+    func startPreviewFrameDelivery(frameInterval: TimeInterval = 0.2, handler: @escaping (Data) -> Void) {
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            self.liveFrameInterval = frameInterval
+            self.lastLiveFrameSentAt = .distantPast
+            self.liveFrameHandler = handler
+        }
+    }
+
+    func stopPreviewFrameDelivery() {
+        sessionQueue.async { [weak self] in
+            self?.liveFrameHandler = nil
+        }
+    }
+
     private func configureSessionIfNeeded() {
         sessionQueue.async { [weak self] in
             guard let self, !self.isConfigured else { return }
@@ -212,6 +233,19 @@ final class CameraManager: NSObject, ObservableObject {
             if let videoConnection = self.movieOutput.connection(with: .video),
                videoConnection.isVideoStabilizationSupported {
                 videoConnection.preferredVideoStabilizationMode = .auto
+            }
+
+            if self.session.canAddOutput(self.videoDataOutput) {
+                self.videoDataOutput.alwaysDiscardsLateVideoFrames = true
+                self.videoDataOutput.videoSettings = [
+                    kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)
+                ]
+                self.videoDataOutput.setSampleBufferDelegate(self, queue: self.videoDataOutputQueue)
+                self.session.addOutput(self.videoDataOutput)
+                if let previewConnection = self.videoDataOutput.connection(with: .video),
+                   previewConnection.isVideoOrientationSupported {
+                    previewConnection.videoOrientation = .portrait
+                }
             }
 
             DispatchQueue.main.async {
@@ -340,5 +374,23 @@ extension CameraManager: AVCaptureFileOutputRecordingDelegate {
                 }
             }
         }
+    }
+}
+
+extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate {
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        guard output === videoDataOutput else { return }
+        guard let handler = liveFrameHandler else { return }
+
+        let now = Date()
+        guard now.timeIntervalSince(lastLiveFrameSentAt) >= liveFrameInterval else { return }
+        lastLiveFrameSentAt = now
+
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        let image = CIImage(cvPixelBuffer: pixelBuffer)
+        guard let cgImage = ciContext.createCGImage(image, from: image.extent) else { return }
+        let uiImage = UIImage(cgImage: cgImage)
+        guard let jpegData = uiImage.jpegData(compressionQuality: 0.55) else { return }
+        handler(jpegData)
     }
 }

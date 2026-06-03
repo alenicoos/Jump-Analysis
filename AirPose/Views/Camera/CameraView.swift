@@ -177,20 +177,39 @@ struct CameraView: View {
     private var controlsCard: some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 16) {
-                SectionHeader("Capture Actions", subtitle: "Record from the camera preview, then manage the clip here.")
+                SectionHeader("Live Jump Session", subtitle: "Use the phone as a live camera source while the Python server handles setup, capture, and analysis.")
 
                 athleteAssignmentSection
 
                 Divider()
 
                 VStack(spacing: 12) {
-                    PrimaryActionButton(
-                        title: "Send for Analysis",
-                        systemImage: "paperplane.fill",
-                        isDisabled: !viewModel.canSendForAnalysis || viewModel.analysisState == .uploading
-                    ) {
-                        Task {
-                            await viewModel.analyzeRecordedJump()
+                    if AppPlatform.supportsLiveCameraCapture {
+                        PrimaryActionButton(
+                            title: viewModel.liveGuidanceState == .active || viewModel.liveGuidanceState == .connecting
+                                ? "Stop Live Guidance"
+                                : "Start Live Guidance",
+                            systemImage: viewModel.liveGuidanceState == .active || viewModel.liveGuidanceState == .connecting
+                                ? "stop.circle.fill"
+                                : "waveform.and.mic"
+                        ) {
+                            if viewModel.liveGuidanceState == .active || viewModel.liveGuidanceState == .connecting {
+                                viewModel.stopLiveGuidance()
+                            } else {
+                                viewModel.startLiveGuidance()
+                            }
+                        }
+                    }
+
+                    if viewModel.canUseRecordedFallback {
+                        PrimaryActionButton(
+                            title: "Analyze Recorded Fallback",
+                            systemImage: "paperplane.fill",
+                            isDisabled: !viewModel.canSendForAnalysis || viewModel.analysisState == .uploading
+                        ) {
+                            Task {
+                                await viewModel.analyzeRecordedJump()
+                            }
                         }
                     }
 
@@ -210,7 +229,7 @@ struct CameraView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 } else if AppPlatform.supportsLiveCameraCapture {
-                    Text("The live preview shows the full camera frame.")
+                    Text("The live preview is streamed to the server, which decides when setup is valid and when the jump starts.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 } else if settingsStore.settings.mockModeEnabled {
@@ -299,11 +318,24 @@ struct CameraView: View {
     private var statusCard: some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 14) {
-                SectionHeader("Analysis Status", subtitle: "Uploads to your local Mac server, then requests concise coaching feedback.")
+                SectionHeader("Analysis Status", subtitle: "The Python server drives setup guidance, jump capture, and final analysis during the live session.")
 
                 Text(statusText)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+
+                if let liveGuidanceMessage = viewModel.liveGuidanceMessage {
+                    Label(liveGuidanceMessage, systemImage: "waveform.and.mic")
+                        .foregroundStyle(viewModel.liveGuidanceState == .failed ? .orange : .blue)
+                        .font(.subheadline.weight(.medium))
+                }
+
+                if let liveAnalysisSummary = viewModel.liveAnalysisSummary {
+                    Text(liveAnalysisSummary)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
                 if let successMessage = viewModel.successMessage {
                     Label(successMessage, systemImage: "checkmark.circle.fill")
@@ -367,11 +399,15 @@ struct CameraView: View {
     private var compactPhoneCameraBar: some View {
         HStack(alignment: .center, spacing: 28) {
             iconOverlayButton(
-                systemImage: "paperplane.fill",
-                isDisabled: !viewModel.canSendForAnalysis || viewModel.analysisState == .uploading
+                systemImage: viewModel.liveGuidanceState == .active || viewModel.liveGuidanceState == .connecting
+                    ? "stop.fill"
+                    : "waveform.and.mic",
+                isDisabled: !viewModel.canStartLiveGuidance && viewModel.liveGuidanceState == .idle
             ) {
-                Task {
-                    await viewModel.analyzeRecordedJump()
+                if viewModel.liveGuidanceState == .active || viewModel.liveGuidanceState == .connecting {
+                    viewModel.stopLiveGuidance()
+                } else {
+                    viewModel.startLiveGuidance()
                 }
             }
 
@@ -471,13 +507,26 @@ struct CameraView: View {
     }
 
     private var statusText: String {
+        switch viewModel.liveGuidanceState {
+        case .connecting:
+            return "Connecting to the live guidance server..."
+        case .active:
+            return "Streaming live camera frames while the server guides setup and captures the jump."
+        case .completed:
+            return "Live analysis complete. The jump has been saved to the Jumps tab."
+        case .failed:
+            return "Live guidance stopped because the streaming session failed."
+        case .idle:
+            break
+        }
+
         switch viewModel.analysisState {
         case .idle:
-            "Waiting for a recording or mock submission."
+            return "Ready to start a live guided jump session."
         case .uploading:
-            "Uploading video and waiting for analysis..."
+            return "Analyzing the recorded fallback clip..."
         case .completed:
-            "Analysis complete. Your jump has been saved to the Jumps tab."
+            return "Recorded fallback analysis complete. Your jump has been saved to the Jumps tab."
         }
     }
 

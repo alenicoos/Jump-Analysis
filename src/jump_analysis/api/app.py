@@ -5,8 +5,9 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 
+from jump_analysis.live_session import LiveGuidanceProcessor
 from jump_analysis.service import VideoAnalysisService
 
 app = FastAPI(title="Jump Analysis API", version="0.1.0")
@@ -106,3 +107,61 @@ async def analyze_jump(
                 temp_path.unlink(missing_ok=True)
         except Exception:
             pass
+
+
+@app.websocket("/live-session")
+async def live_session(websocket: WebSocket) -> None:
+    await websocket.accept()
+
+    raw_height_cm = websocket.query_params.get("height_cm")
+    try:
+        height_cm = float(raw_height_cm) if raw_height_cm is not None else 0.0
+    except ValueError as error:
+        await websocket.send_json(
+            {
+                "type": "error",
+                "phase": "initializing",
+                "text": "height_cm must be a valid number.",
+                "level": "error",
+                "speak": True,
+            }
+        )
+        raise ValueError("height_cm must be a valid number.") from error
+
+    if height_cm <= 0:
+        await websocket.send_json(
+            {
+                "type": "error",
+                "phase": "initializing",
+                "text": "A positive athlete height is required before starting live guidance.",
+                "level": "error",
+                "speak": True,
+            }
+        )
+        await websocket.close(code=1008)
+        return
+
+    processor = LiveGuidanceProcessor(
+        analysis_service=service,
+        model=service._get_model(),
+        height_cm=height_cm,
+    )
+    await websocket.send_json(
+        {
+            "type": "status",
+            "phase": "floor_setup",
+            "text": "Live guidance connected. Stand on the floor facing the camera and stay still.",
+            "level": "info",
+            "speak": True,
+        }
+    )
+
+    try:
+        while True:
+            message = await websocket.receive_text()
+            for event in processor.process_text_message(message):
+                await websocket.send_json(event)
+            for event in processor.consume_pending_analysis():
+                await websocket.send_json(event)
+    except WebSocketDisconnect:
+        logger.info("Live guidance websocket disconnected.")

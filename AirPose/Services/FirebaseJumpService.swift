@@ -65,6 +65,7 @@ private struct FirestoreJumpRecord: Codable {
     let maxKneeFlexionRightKneeAngleDeg: Double
     let landingAsymmetryRatio: Double
     let kneeAsymmetryRatio: Double
+    let imuRecording: JumpAnalysisResponse.IMURecordingSummary?
 
     init(jump: Jump) {
         id = jump.id
@@ -95,6 +96,7 @@ private struct FirestoreJumpRecord: Codable {
         maxKneeFlexionRightKneeAngleDeg = jump.maxKneeFlexionRightKneeAngleDeg
         landingAsymmetryRatio = jump.landingAsymmetryRatio
         kneeAsymmetryRatio = jump.kneeAsymmetryRatio
+        imuRecording = jump.imuRecording
     }
 
     init?(document: QueryDocumentSnapshot) {
@@ -146,6 +148,12 @@ private struct FirestoreJumpRecord: Codable {
         self.maxKneeFlexionRightKneeAngleDeg = data["maxKneeFlexionRightKneeAngleDeg"] as? Double ?? 0
         self.landingAsymmetryRatio = data["landingAsymmetryRatio"] as? Double ?? 0
         self.kneeAsymmetryRatio = data["kneeAsymmetryRatio"] as? Double ?? 0
+        if let imuData = data["imuRecording"] as? [String: Any] {
+            let jsonData = try? JSONSerialization.data(withJSONObject: imuData)
+            self.imuRecording = jsonData.flatMap { try? JSONDecoder().decode(JumpAnalysisResponse.IMURecordingSummary.self, from: $0) }
+        } else {
+            self.imuRecording = nil
+        }
     }
 
     var dictionary: [String: Any] {
@@ -178,6 +186,7 @@ private struct FirestoreJumpRecord: Codable {
             "maxKneeFlexionRightKneeAngleDeg": maxKneeFlexionRightKneeAngleDeg,
             "landingAsymmetryRatio": landingAsymmetryRatio,
             "kneeAsymmetryRatio": kneeAsymmetryRatio,
+            "imuRecording": imuRecordingDictionary as Any,
         ]
     }
 
@@ -198,6 +207,15 @@ private struct FirestoreJumpRecord: Codable {
             }
             return jsonObject
         }
+    }
+
+    private var imuRecordingDictionary: [String: Any]? {
+        guard let imuRecording,
+              let data = try? JSONEncoder().encode(imuRecording),
+              let jsonObject = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return jsonObject
     }
 
     func toJump() -> Jump {
@@ -229,7 +247,8 @@ private struct FirestoreJumpRecord: Codable {
             maxKneeFlexionLeftKneeAngleDeg: maxKneeFlexionLeftKneeAngleDeg,
             maxKneeFlexionRightKneeAngleDeg: maxKneeFlexionRightKneeAngleDeg,
             landingAsymmetryRatio: landingAsymmetryRatio,
-            kneeAsymmetryRatio: kneeAsymmetryRatio
+            kneeAsymmetryRatio: kneeAsymmetryRatio,
+            imuRecording: imuRecording
         )
     }
 }

@@ -24,6 +24,17 @@ from jump_analysis.video.yolo_video import (
 logger = logging.getLogger("jump_analysis.service")
 
 
+def _protocol_check_names(metadata: dict[str, int | float]) -> list[str]:
+    """Return protocol-check names in metadata insertion order."""
+
+    names: list[str] = []
+    for key in metadata:
+        if key == "protocol_passed" or not key.endswith("_passed"):
+            continue
+        names.append(key.removesuffix("_passed"))
+    return names
+
+
 @dataclass
 class ProtocolCheckResult:
     name: str
@@ -112,6 +123,25 @@ class VideoAnalysisService:
             fps,
             estimated_shoulder_width_m * 100.0,
         )
+        return self.analyze_pose_frames(
+            frames,
+            fps=fps,
+            estimated_shoulder_width_m=estimated_shoulder_width_m,
+            recording_started_at=recording_started_at,
+            analysis_started_at=analysis_started_at,
+        )
+
+    def analyze_pose_frames(
+        self,
+        frames: list[YoloPoseFrame],
+        fps: float,
+        estimated_shoulder_width_m: float,
+        recording_started_at: datetime | None,
+        analysis_started_at: datetime | None = None,
+    ) -> JumpAnalysisResult:
+        if analysis_started_at is None:
+            analysis_started_at = datetime.now(UTC)
+
         features, metadata = extract_front_features_from_yolo_frames(frames)
         compare_to_reference(features, self.reference_csv)
         reference = pd.read_csv(self.reference_csv)
@@ -140,11 +170,8 @@ class VideoAnalysisService:
             logger.info("IMU attach: no matching recording found, analysis will be returned with video-only metrics")
 
         summary = self._build_summary(metadata, analysis, imu_recording)
-        for check_name in (
-            "drop_started_from_height",
-            "two_foot_contact",
-            "second_jump",
-        ):
+        protocol_check_names = _protocol_check_names(metadata)
+        for check_name in protocol_check_names:
             logger.info(
                 "Protocol check %s: passed=%s value=%.3f threshold=%.3f",
                 check_name,
@@ -170,11 +197,7 @@ class VideoAnalysisService:
                     value=float(metadata.get(f"{check_name}_value", 0.0)),
                     threshold=float(metadata.get(f"{check_name}_threshold", 0.0)),
                 )
-                for check_name in (
-                    "drop_started_from_height",
-                    "two_foot_contact",
-                    "second_jump",
-                )
+                for check_name in protocol_check_names
             ],
             prediction=str(analysis["prediction"]),
             anomaly_score=float(analysis["anomaly_score"]),

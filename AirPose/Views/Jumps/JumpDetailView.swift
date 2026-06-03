@@ -90,6 +90,33 @@ struct JumpDetailView: View {
                         }
                     }
                 }
+
+                if let imuRecording = jump.imuRecording {
+                    Divider()
+                        .padding(.vertical, 4)
+
+                    Text("IMU Recording")
+                        .font(.subheadline.weight(.semibold))
+
+                    detailRow(title: "Matched File", value: imuRecording.matchedFile)
+                    detailRow(title: "Matched Folder", value: imuRecording.matchedFolder)
+                    detailRow(title: "Sensors", value: "\(imuRecording.deviceCount)")
+                    detailRow(title: "Total Samples", value: "\(imuRecording.totalSamples)")
+                    detailRow(title: "Time Offset", value: "\(imuRecording.timeOffsetSeconds.airPoseOneDecimalString) s")
+
+                    ForEach(Array(imuRecording.deviceSummaries.enumerated()), id: \.offset) { _, device in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(device.deviceName)
+                                .font(.subheadline.weight(.medium))
+
+                            Text(imuDeviceSummary(device))
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(.top, 4)
+                    }
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -119,5 +146,19 @@ struct JumpDetailView: View {
                 .multilineTextAlignment(.trailing)
         }
         .font(.subheadline)
+    }
+
+    private func imuDeviceSummary(_ device: JumpAnalysisResponse.IMUDeviceSummary) -> String {
+        [
+            "Samples: \(device.sampleCount)",
+            "Duration: \(device.durationSeconds.airPoseOneDecimalString) s",
+            "Peak Accel: \(optionalValue(device.peakAccelerationG, suffix: " g"))",
+            "Peak Gyro: \(optionalValue(device.peakAngularVelocityDps, suffix: " dps"))",
+        ].joined(separator: " • ")
+    }
+
+    private func optionalValue(_ value: Double?, suffix: String) -> String {
+        guard let value else { return "n/a" }
+        return "\(value.airPoseOneDecimalString)\(suffix)"
     }
 }
