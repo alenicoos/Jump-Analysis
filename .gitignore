@@ -1,0 +1,40 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+.cache/
+.venv/
+
+# Local model weights and large datasets
+*.pt
+*.onnx
+*.c3d
+*.mat
+*.zip
+*.tar
+*.tar.gz
+data/
+datasets/
+
+# Generated outputs
+collected_trials/
+reports/
+
+# Local project documents
+CAMERA_WORKFLOW_EXPLAINED.md
+PROJECT_PRESENTATION.md
+
+# Generated data files (reproducible from scripts)
+*.npz
+!knee_orientation_model.npz
+*.pkl
+*.csv
+
+# Training plots
+*.png
+!assets/image.png
+
+# PowerPoint presentations
+*.pptx
+
+# Generated runtime outputs
+outputs/

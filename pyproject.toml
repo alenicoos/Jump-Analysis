@@ -1,0 +1,21 @@
+[project]
+name = "jump-analysis"
+version = "0.1.0"
+description = "Front-view 2D LESS feature extraction and analysis."
+requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+    "opencv-python",
+    "pandas",
+    "scipy",
+    "torch",
+    "matplotlib",
+    "ultralytics",
+    "lap",
+    "pyserial",
+    "witmotion",
+    "streamlit",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

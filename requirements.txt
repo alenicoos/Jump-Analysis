@@ -1,0 +1,11 @@
+opencv-python
+numpy
+pandas
+scipy
+torch
+matplotlib
+ultralytics
+lap
+pyserial
+witmotion
+streamlit
