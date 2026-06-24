@@ -4,19 +4,27 @@ final class LocalJSONFileStore<Value: Codable> {
     private let fileURL: URL
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let fileManager = FileManager.default
 
     init(filename: String) {
-        let baseURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
-        let directoryURL = baseURL.appendingPathComponent("AirPose", isDirectory: true)
+        let baseURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? fileManager.temporaryDirectory
+        let directoryURL = baseURL.appendingPathComponent("JumpGuard", isDirectory: true)
+        let legacyDirectoryURL = baseURL.appendingPathComponent("AirPose", isDirectory: true)
         fileURL = directoryURL.appendingPathComponent(filename)
+        let legacyFileURL = legacyDirectoryURL.appendingPathComponent(filename)
 
         encoder = JSONEncoder()
         decoder = JSONDecoder()
         encoder.dateEncodingStrategy = .iso8601
         decoder.dateDecodingStrategy = .iso8601
 
-        try? FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        try? fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+
+        if !fileManager.fileExists(atPath: fileURL.path),
+           fileManager.fileExists(atPath: legacyFileURL.path) {
+            try? fileManager.copyItem(at: legacyFileURL, to: fileURL)
+        }
     }
 
     func load(defaultValue: Value) -> Value {

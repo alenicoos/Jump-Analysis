@@ -24,7 +24,7 @@ struct AuthenticationView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("AirPose")
+                    Text("JumpGuard")
                         .font(.largeTitle.weight(.bold))
 
                     Text("Sign in to sync your athlete profile and jump history across devices with Firebase.")

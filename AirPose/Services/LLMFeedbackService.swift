@@ -65,9 +65,9 @@ private struct OpenAIResponsesResult: Decodable {
 
 private enum JumpPostureInterpretationScript {
     static let prompt = """
-    AirPose posture interpretation guide
+    JumpGuard posture interpretation guide
 
-    Use this guide to convert AirPose jump analytics into plain-language posture feedback.
+    Use this guide to convert JumpGuard jump analytics into plain-language posture feedback.
     The analysis comes from a front-view 2D pose pipeline:
     - YOLO pose estimates COCO body keypoints from the frontal video.
     - The backend keeps shoulder, hip, knee, and ankle landmarks.
@@ -187,7 +187,7 @@ private enum JumpPostureInterpretationScript {
 struct LLMFeedbackService {
     private let model = "gpt-4.1-mini"
     private let datasetContext = """
-    The jump was analyzed against AirPose's reference dataset: a converted frontal 2D, 37-feature representation of a 183-athlete motion-capture drop-jump dataset. The model compares the recorded jump against that reference distribution and flags deviations as anomaly-style differences from the dataset, not as a medical diagnosis.
+    The jump was analyzed against JumpGuard's reference dataset: a converted frontal 2D, 37-feature representation of a 183-athlete motion-capture drop-jump dataset. The model compares the recorded jump against that reference distribution and flags deviations as anomaly-style differences from the dataset, not as a medical diagnosis.
     """
 
     func generateFeedback(for analysis: JumpAnalysisResponse, settings: AppSettings) async throws -> String {
@@ -205,7 +205,7 @@ struct LLMFeedbackService {
         }
 
         let instructions = """
-        You are a jump performance coach writing athlete-facing posture feedback. Write one detailed paragraph of 4 to 6 sentences in plain language, do not mention being an AI model, and do not make medical claims. Focus on how the jump was performed from a posture and alignment point of view: trunk or shoulder position if supported by the feature names, knee tracking and alignment, left-right symmetry at initial contact and maximum flexion, and ankle or foot control if the strongest deviation suggests it. Translate the analytics into clear movement language such as knees collapsing inward, one side absorbing more load, torso drifting to one side, or ankles looking unstable, but only when the provided metrics or feature names support that interpretation. Use the numeric values naturally to justify the explanation, compare the movement with the AirPose reference dataset, and finish with a concrete coaching correction. If ankle IMU data is present, use it as the authoritative source for acceleration, angular velocity, and ankle-mounted orientation observations instead of inferring those quantities from the video.
+        You are a jump performance coach writing athlete-facing posture feedback. Write one detailed paragraph of 4 to 6 sentences in plain language, do not mention being an AI model, and do not make medical claims. Focus on how the jump was performed from a posture and alignment point of view: trunk or shoulder position if supported by the feature names, knee tracking and alignment, left-right symmetry at initial contact and maximum flexion, and ankle or foot control if the strongest deviation suggests it. Translate the analytics into clear movement language such as knees collapsing inward, one side absorbing more load, torso drifting to one side, or ankles looking unstable, but only when the provided metrics or feature names support that interpretation. Use the numeric values naturally to justify the explanation, compare the movement with the JumpGuard reference dataset, and finish with a concrete coaching correction. If ankle IMU data is present, use it as the authoritative source for acceleration, angular velocity, and ankle-mounted orientation observations instead of inferring those quantities from the video.
         """
 
         let imuRecordingBlock: String = {

@@ -1,3 +1,4 @@
+import CryptoKit
 import FirebaseFirestore
 import Foundation
 
@@ -9,12 +10,13 @@ struct FirebaseJumpService {
             .collection("users")
             .document(userID)
             .collection("jumps")
-            .order(by: "date", descending: true)
             .getDocuments()
 
-        return snapshot.documents.compactMap { document in
+        let jumps = snapshot.documents.compactMap { document in
             FirestoreJumpRecord(document: document)?.toJump()
         }
+
+        return jumps.sorted { $0.date > $1.date }
     }
 
     func save(_ jump: Jump, for userID: String) async throws {
@@ -22,22 +24,33 @@ struct FirebaseJumpService {
             .collection("users")
             .document(userID)
             .collection("jumps")
-            .document(jump.id.uuidString)
+            .document(jump.cloudDocumentID ?? jump.id.uuidString)
             .setData(FirestoreJumpRecord(jump: jump).dictionary)
     }
 
-    func delete(_ jump: Jump, for userID: String) async throws {
+    func deleteJump(withID jumpID: UUID, for userID: String) async throws {
         try await database
             .collection("users")
             .document(userID)
             .collection("jumps")
-            .document(jump.id.uuidString)
+            .document(jumpID.uuidString)
+            .delete()
+    }
+
+    func delete(_ jump: Jump, for userID: String) async throws {
+        let documentID = jump.cloudDocumentID ?? jump.id.uuidString
+        try await database
+            .collection("users")
+            .document(userID)
+            .collection("jumps")
+            .document(documentID)
             .delete()
     }
 }
 
 private struct FirestoreJumpRecord: Codable {
     let id: UUID
+    let cloudDocumentID: String
     let date: Date
     let videoURLString: String?
     let athleteProfile: JumpAthleteProfile?
@@ -70,6 +83,7 @@ private struct FirestoreJumpRecord: Codable {
 
     init(jump: Jump) {
         id = jump.id
+        cloudDocumentID = jump.cloudDocumentID ?? jump.id.uuidString
         date = jump.date
         videoURLString = jump.videoURL?.absoluteString
         athleteProfile = jump.athleteProfile
@@ -104,15 +118,13 @@ private struct FirestoreJumpRecord: Codable {
     init?(document: QueryDocumentSnapshot) {
         let data = document.data()
 
-        guard
-            let id = UUID(uuidString: data["id"] as? String ?? document.documentID),
-            let timestamp = data["date"] as? Timestamp
-        else {
-            return nil
-        }
-
-        self.id = id
-        self.date = timestamp.dateValue()
+        let storedID = data["id"] as? String
+        self.id = storedID.flatMap(UUID.init(uuidString:)) ?? Self.stableUUID(for: document.documentID)
+        self.cloudDocumentID = document.documentID
+        self.date = Self.decodeDate(from: data["date"])
+            ?? Self.decodeDate(from: data["timestamp"])
+            ?? Self.decodeDate(from: data["createdAt"])
+            ?? Date.distantPast
         self.videoURLString = data["videoURLString"] as? String
         if let athleteData = data["athleteProfile"] as? [String: Any] {
             let jsonData = try? JSONSerialization.data(withJSONObject: athleteData)
@@ -239,6 +251,7 @@ private struct FirestoreJumpRecord: Codable {
     func toJump() -> Jump {
         Jump(
             id: id,
+            cloudDocumentID: cloudDocumentID,
             date: date,
             videoURL: videoURLString.flatMap(URL.init(string:)),
             athleteProfile: athleteProfile,
@@ -269,5 +282,42 @@ private struct FirestoreJumpRecord: Codable {
             jumpGraph: jumpGraph,
             imuRecording: imuRecording
         )
+    }
+
+    private static func decodeDate(from value: Any?) -> Date? {
+        switch value {
+        case let timestamp as Timestamp:
+            return timestamp.dateValue()
+        case let date as Date:
+            return date
+        case let number as NSNumber:
+            return Date(timeIntervalSince1970: number.doubleValue)
+        case let string as String:
+            let iso8601Formatter = ISO8601DateFormatter()
+            if let date = iso8601Formatter.date(from: string) {
+                return date
+            }
+
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = "yyyy-MM-dd HH:mm:ss Z"
+            return formatter.date(from: string)
+        default:
+            return nil
+        }
+    }
+
+    private static func stableUUID(for value: String) -> UUID {
+        let digest = SHA256.hash(data: Data(value.utf8))
+        let bytes = Array(digest.prefix(16))
+        let uuidString = String(
+            format: "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+            bytes[0], bytes[1], bytes[2], bytes[3],
+            bytes[4], bytes[5],
+            bytes[6], bytes[7],
+            bytes[8], bytes[9],
+            bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
+        )
+        return UUID(uuidString: uuidString) ?? UUID()
     }
 }

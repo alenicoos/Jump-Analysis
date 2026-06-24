@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct AirPoseApp: App {
+    @Environment(\.scenePhase) private var scenePhase
     @UIApplicationDelegateAdaptor(FirebaseAppDelegate.self) private var appDelegate
     @StateObject private var jumpStore: JumpStore
     @StateObject private var profileStore: UserProfileStore
@@ -74,7 +75,12 @@ struct AirPoseApp: App {
             .environmentObject(tabRouter)
             .preferredColorScheme(settingsStore.settings.themePreference.colorScheme)
             .task {
+                cloudSyncCoordinator.retryCloudSyncIfPossible()
                 jumpNarrationCoordinator.backfillExistingJumpsIfNeeded()
+            }
+            .onChange(of: scenePhase) { _, newPhase in
+                guard newPhase == .active else { return }
+                cloudSyncCoordinator.retryCloudSyncIfPossible()
             }
         }
     }

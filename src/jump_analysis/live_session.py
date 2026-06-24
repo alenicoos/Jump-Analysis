@@ -24,10 +24,13 @@ from jump_analysis.video.yolo_video import (
     normalize_keypoints_to_mocap_scale,
     required_visible,
     select_pose,
+    visible,
 )
 
 
 logger = logging.getLogger("jump_analysis.live_session")
+
+LIVE_MIN_RECORDING_FRAMES = 4
 
 
 @dataclass
@@ -90,6 +93,10 @@ class LiveGuidanceProcessor:
         self.second_takeoff_seen = False
         self.second_landing_seen = False
         self.stable_after_landing_count = 0
+        self.post_landing_feet_y: deque[float] = deque(maxlen=5)
+        self.live_second_takeoff_frame_index: int | None = None
+        self.live_second_landing_frame_index: int | None = None
+        self.recording_frame_count = 0
         self.frame_index = 0
         self.last_logged_frame_index = 0
 
@@ -164,6 +171,17 @@ class LiveGuidanceProcessor:
         _, detected_track_id, kpts_xy, kpts_conf, box = selection
         if self.locked_track_id is None and detected_track_id is not None:
             self.locked_track_id = detected_track_id
+
+        if self.recording_started_monotonic is not None and self._can_track_recording_frame(kpts_conf, box):
+            if not required_visible(kpts_conf) or not full_body_box_visible(box, decoded.shape):
+                feet_y = float((kpts_xy[LEFT_ANKLE][1] + kpts_xy[RIGHT_ANKLE][1]) / 2.0)
+                body_height = estimate_person_height_px(box, kpts_xy)
+                self.recording_frame_count += 1
+                self._update_jump_completion(feet_y, body_height)
+                return self._recording_guidance_events(
+                    "Recording. Keep both ankles visible while you perform the rebound jump.",
+                    level="warning",
+                )
 
         if not required_visible(kpts_conf):
             self._clear_setup_buffers_if_needed()
@@ -254,6 +272,7 @@ class LiveGuidanceProcessor:
             current_drop_px = feet_y - baseline
             if len(self.prep_feet_y) >= 30 and current_drop_px > required_drop_px:
                 self.recording_started_monotonic = now
+                self.recording_frame_count = 1
                 self._set_phase("recording", f"drop detected current_drop_px={current_drop_px:.2f} required_drop_px={required_drop_px:.2f}")
                 self.frames = [
                     YoloPoseFrame(
@@ -280,20 +299,9 @@ class LiveGuidanceProcessor:
                 raw_keypoints_xy=kpts_xy.copy(),
             )
         )
+        self.recording_frame_count += 1
         self._update_jump_completion(feet_y, body_height)
-        if self.phase != "completed":
-            return [self._event("guidance", self.phase, "Recording. Land and perform the rebound jump.")]
-        self._set_phase("analyzing", f"jump completion detected buffered_frames={len(self.frames)}")
-        return [
-            self._event("guidance", self.phase, "Jump captured. Stop moving while I analyze it.", level="success"),
-            LiveGuidanceEvent(
-                type="stop_streaming",
-                phase=self.phase,
-                text="Jump captured. Stop streaming while the server analyzes the jump.",
-                level="success",
-                speak=False,
-            ),
-        ]
+        return self._recording_guidance_events("Recording. Land and perform the rebound jump.")
 
     def consume_pending_analysis(self) -> list[dict[str, Any]]:
         if self.phase != "analyzing" or self.analysis_started or self.analysis_completed:
@@ -338,27 +346,95 @@ class LiveGuidanceProcessor:
     def _update_jump_completion(self, feet_y: float, body_height: float) -> None:
         if self.recording_started_monotonic is None:
             return
-        if time.monotonic() - self.recording_started_monotonic < 1.5:
+        if self.recording_frame_count < LIVE_MIN_RECORDING_FRAMES:
             return
 
         body_scale = max(body_height, 1.0)
         if self.first_landing_y is None or (not self.second_takeoff_seen and feet_y > self.first_landing_y):
             self.first_landing_y = feet_y
+            logger.debug(
+                "Live rebound tracking landing baseline updated feet_y=%.2f body_scale=%.2f recording_frames=%s",
+                feet_y,
+                body_scale,
+                self.recording_frame_count,
+            )
         if self.first_landing_y is not None and not self.second_takeoff_seen:
-            self.second_takeoff_seen = feet_y < self.first_landing_y - 0.08 * body_scale
+            takeoff_threshold = self.first_landing_y - 0.08 * body_scale
+            self.second_takeoff_seen = feet_y < takeoff_threshold
+            if self.second_takeoff_seen:
+                self.live_second_takeoff_frame_index = self.frame_index
+                if self.frames:
+                    self.frames[-1].live_second_takeoff_hint = True
+                logger.info(
+                    "Live rebound takeoff detected feet_y=%.2f threshold=%.2f first_landing_y=%.2f recording_frames=%s",
+                    feet_y,
+                    takeoff_threshold,
+                    self.first_landing_y,
+                    self.recording_frame_count,
+                )
         if self.first_landing_y is not None and self.second_takeoff_seen and not self.second_landing_seen:
-            self.second_landing_seen = feet_y >= self.first_landing_y - 0.08 * body_scale
+            landing_threshold = self.first_landing_y - 0.08 * body_scale
+            self.second_landing_seen = feet_y >= landing_threshold
             if self.second_landing_seen:
                 self.second_landing_y = feet_y
+                self.post_landing_feet_y.clear()
+                self.post_landing_feet_y.append(feet_y)
+                self.live_second_landing_frame_index = self.frame_index
+                if self.frames:
+                    self.frames[-1].live_second_landing_hint = True
+                logger.info(
+                    "Live rebound landing detected feet_y=%.2f threshold=%.2f recording_frames=%s",
+                    feet_y,
+                    landing_threshold,
+                    self.recording_frame_count,
+                )
         if self.second_landing_seen and self.second_landing_y is not None:
-            if feet_y > self.second_landing_y + 0.12 * body_scale:
-                self.stable_after_landing_count = 0
-            elif abs(feet_y - self.second_landing_y) <= 0.04 * body_scale:
-                self.stable_after_landing_count += 1
-            else:
-                self.stable_after_landing_count = max(0, self.stable_after_landing_count - 1)
+            # After the first landing-contact frame, let the landing reference
+            # settle with the athlete instead of anchoring forever to the very
+            # first crossing frame.
+            if feet_y > self.second_landing_y:
+                self.second_landing_y = feet_y
+            self.post_landing_feet_y.append(feet_y)
+            if len(self.post_landing_feet_y) >= self.post_landing_feet_y.maxlen:
+                landing_window = np.asarray(self.post_landing_feet_y, dtype=float)
+                landing_range = float(np.max(landing_window) - np.min(landing_window))
+                landing_tolerance = 0.05 * body_scale
+                if landing_range <= landing_tolerance:
+                    self.stable_after_landing_count = len(self.post_landing_feet_y)
+                else:
+                    self.stable_after_landing_count = 0
+                logger.debug(
+                    "Live rebound post-landing window range=%.2f tolerance=%.2f count=%s",
+                    landing_range,
+                    landing_tolerance,
+                    self.stable_after_landing_count,
+                )
             if self.stable_after_landing_count >= 5:
+                if self.frames:
+                    self.frames[-1].live_recording_completed_hint = True
                 self._set_phase("completed", "stable second landing reached")
+
+    def _recording_guidance_events(self, text: str, *, level: str = "info") -> list[LiveGuidanceEvent]:
+        if self.phase != "completed":
+            return [self._event("guidance", self.phase, text, level=level)]
+        self._set_phase("analyzing", f"jump completion detected buffered_frames={len(self.frames)}")
+        return [
+            self._event("guidance", self.phase, "Jump captured. Stop moving while I analyze it.", level="success"),
+            LiveGuidanceEvent(
+                type="stop_streaming",
+                phase=self.phase,
+                text="Jump captured. Stop streaming while the server analyzes the jump.",
+                level="success",
+                speak=False,
+            ),
+        ]
+
+    def _can_track_recording_frame(self, kpts_conf: np.ndarray, box: np.ndarray | None) -> bool:
+        return (
+            box is not None
+            and visible(kpts_conf, LEFT_ANKLE)
+            and visible(kpts_conf, RIGHT_ANKLE)
+        )
 
     def _set_phase(self, phase: str, reason: str) -> None:
         if phase == self.phase:

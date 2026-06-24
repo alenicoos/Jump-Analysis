@@ -1,0 +1,207 @@
+{
+  "trial_id": "jump_1",
+  "participant_id": "synthetic_athletic_180cm_75kg",
+  "created_at": "2026-06-04T14:04:00",
+  "height_cm": 180.0,
+  "source": "synthetic_collect_jump_data_recreation",
+  "model": "yolo26n-pose.pt",
+  "seconds": 8.0,
+  "prepare_seconds": 2.0,
+  "min_drop_ratio": 0.06,
+  "max_wait_seconds": 30.0,
+  "protocol": {
+    "valid_pose_frames": 64,
+    "ic_valid_frame": 5,
+    "kfmax_valid_frame": 12,
+    "ic_raw_frame": 50,
+    "kfmax_raw_frame": 57,
+    "protocol_passed": 1,
+    "drop_started_from_height_passed": 1,
+    "drop_started_from_height_value": 64.0047538626389,
+    "drop_started_from_height_threshold": 47.69332781520003,
+    "second_jump_passed": 1,
+    "second_jump_value": 0.18495584240541835,
+    "second_jump_threshold": 0.02918266008182647,
+    "stable_after_second_landing_passed": 1,
+    "stable_after_second_landing_value": 0.06626404748526814,
+    "stable_after_second_landing_threshold": 0.0768769362120609
+  },
+  "setup_calibration": {
+    "floor_body_height_px": 835.5260464931441,
+    "meters_per_pixel": 0.0021849568706701376,
+    "measured_shoulder_width_m": 0.2949864681768847,
+    "box_height_px": 181.13656953605337,
+    "scale_change_ratio": 0.04795786075053237,
+    "camera_roll_degrees": 181.36140976914587,
+    "pitch_proxy_ratio": 0.4320339687109655,
+    "estimated_box_height_cm": 37.481975246573455,
+    "floor_pose_keypoints_xy_px": [
+      [
+        1022.7177398257392,
+        305.9011128375577
+      ],
+      [
+        1036.4521453433172,
+        292.82199601626866
+      ],
+      [
+        1007.4341094546454,
+        293.85495500064366
+      ],
+      [
+        1058.0989959292547,
+        304.59528092837803
+      ],
+      [
+        985.9514739565985,
+        308.09721879458897
+      ],
+      [
+        1098.6199920230047,
+        399.05304460025303
+      ],
+      [
+        959.4134795718329,
+        406.23065690494053
+      ],
+      [
+        1129.2543914370672,
+        520.9313862750578
+      ],
+      [
+        944.4800994448798,
+        526.0468342731047
+      ],
+      [
+        1138.2521941714422,
+        629.4515278766203
+      ],
+      [
+        938.041683917536,
+        628.906056685214
+      ],
+      [
+        1080.373959308161,
+        629.1722004840422
+      ],
+      [
+        986.4220855288642,
+        630.9764607379484
+      ],
+      [
+        1090.5891692690984,
+        821.6910298297453
+      ],
+      [
+        990.2988555483954,
+        820.1308186481047
+      ],
+      [
+        1101.2862517886297,
+        1035.3759663531828
+      ],
+      [
+        997.0402495913642,
+        1030.0036519000578
+      ]
+    ],
+    "box_pose_keypoints_xy_px": [
+      [
+        1033.5717109013854,
+        197.27477642162538
+      ],
+      [
+        1046.3986762334166,
+        185.87630840404725
+      ],
+      [
+        1019.2195075322446,
+        185.72494884594178
+      ],
+      [
+        1065.6198676396666,
+        199.5205573664496
+      ],
+      [
+        997.5659125615415,
+        200.58202739818788
+      ],
+      [
+        1104.0103095341979,
+        290.1530418024847
+      ],
+      [
+        971.1950324345884,
+        294.4546012507269
+      ],
+      [
+        1130.0612738896666,
+        396.6578635798285
+      ],
+      [
+        957.1560004521665,
+        403.45466228588316
+      ],
+      [
+        1141.6406806279479,
+        492.0577506647894
+      ],
+      [
+        949.699335413104,
+        500.986598931391
+      ],
+      [
+        1086.5761664677916,
+        500.68302532299253
+      ],
+      [
+        1000.3198188115415,
+        502.09882732494566
+      ],
+      [
+        1090.9909003545104,
+        671.073268853266
+      ],
+      [
+        1007.4671881963071,
+        670.7600974665472
+      ],
+      [
+        1092.6914618779479,
+        846.6393394099066
+      ],
+      [
+        1019.6595710088071,
+        844.6671714411566
+      ]
+    ]
+  },
+  "files": {
+    "movement_timeseries": "movement_timeseries.csv",
+    "front_2d_features": "front_2d_features.csv",
+    "trial_metadata": "trial_metadata.json"
+  },
+  "sensor_ground_truth": {
+    "status": "synthetic_generated",
+    "planned_sensors": [
+      "left_knee_bwt901cl",
+      "right_knee_bwt901cl"
+    ],
+    "left_imu_csv": null,
+    "right_imu_csv": null,
+    "left_imu_port": null,
+    "right_imu_port": null,
+    "live_reader_used": false,
+    "left_live_sample_count": 70,
+    "right_live_sample_count": 77
+  },
+  "synthetic_generation": {
+    "based_on_trial": "participant_20260601_144424",
+    "subject_profile": {
+      "height_cm": 180.0,
+      "weight_kg": 75.0,
+      "athletic_level": "quite athletic",
+      "notes": "near-dunk vertical ability; synthesized for fast rebound drop jumps"
+    }
+  }
+}

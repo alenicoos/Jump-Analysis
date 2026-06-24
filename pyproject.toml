@@ -4,11 +4,15 @@ version = "0.1.0"
 description = "Front-view 2D LESS feature extraction and analysis."
 requires-python = ">=3.11"
 dependencies = [
+    "fastapi",
     "numpy",
     "opencv-python",
     "pandas",
+    "python-multipart",
     "scipy",
+    "torch",
     "ultralytics",
+    "uvicorn",
     "lap",
     "pyserial",
     "witmotion",

@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import ImageIO
 import UIKit
 
 final class CameraManager: NSObject, ObservableObject {
@@ -389,7 +390,7 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate {
         lastLiveFrameSentAt = now
 
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        let image = CIImage(cvPixelBuffer: pixelBuffer)
+        let image = CIImage(cvPixelBuffer: pixelBuffer).oriented(liveStreamOrientation())
         let extent = image.extent
         let maxDimension = max(extent.width, extent.height)
         let scale = min(1.0, liveStreamMaxDimension / max(maxDimension, 1.0))
@@ -403,5 +404,30 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate {
             )
         else { return }
         handler(jpegData)
+    }
+
+    private func liveStreamOrientation() -> CGImagePropertyOrientation {
+        #if targetEnvironment(macCatalyst)
+        return .up
+        #else
+        let interfaceOrientation = DispatchQueue.main.sync {
+            UIApplication.shared.connectedScenes
+                .compactMap { ($0 as? UIWindowScene)?.interfaceOrientation }
+                .first ?? .portrait
+        }
+
+        switch interfaceOrientation {
+        case .portrait:
+            return currentCameraPosition == .front ? .leftMirrored : .right
+        case .portraitUpsideDown:
+            return currentCameraPosition == .front ? .rightMirrored : .left
+        case .landscapeLeft:
+            return currentCameraPosition == .front ? .downMirrored : .up
+        case .landscapeRight:
+            return currentCameraPosition == .front ? .upMirrored : .down
+        default:
+            return currentCameraPosition == .front ? .leftMirrored : .right
+        }
+        #endif
     }
 }

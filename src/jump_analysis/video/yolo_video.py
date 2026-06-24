@@ -90,6 +90,9 @@ class YoloPoseFrame:
     raw_keypoints_xy: np.ndarray | None = None
     drop_trigger_px: float | None = None
     required_drop_px: float | None = None
+    live_second_takeoff_hint: bool = False
+    live_second_landing_hint: bool = False
+    live_recording_completed_hint: bool = False
 
 
 @dataclass

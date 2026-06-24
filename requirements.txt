@@ -1,8 +1,12 @@
+fastapi
 opencv-python
 numpy
 pandas
+python-multipart
 scipy
+torch
 ultralytics
+uvicorn
 lap
 pyserial
 witmotion

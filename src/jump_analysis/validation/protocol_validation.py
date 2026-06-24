@@ -171,6 +171,8 @@ class DropJumpProtocolValidator:
             second_takeoff_index=second_takeoff_index,
             reference_width=reference_width,
         )
+        if second_landing_index is None:
+            second_landing_index = self.find_live_second_landing_hint(frames)
         max_fall = self.max_post_landing_fall_ratio * reference_width
         if second_landing_index is not None:
             post_ankle = ankle_y[second_landing_index:]
@@ -268,6 +270,13 @@ class DropJumpProtocolValidator:
         if len(candidates) == 0:
             return None
         return second_takeoff_index + 1 + int(candidates[0])
+
+    @staticmethod
+    def find_live_second_landing_hint(frames: list[Any]) -> int | None:
+        for index, frame in enumerate(frames):
+            if bool(getattr(frame, "live_second_landing_hint", False)):
+                return index
+        return None
 
     def detect_drop_start(
         self,

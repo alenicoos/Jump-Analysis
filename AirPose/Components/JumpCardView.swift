@@ -37,24 +37,44 @@ struct JumpCardView: View {
 
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                     MetricTile(title: "Protocol", value: jump.protocolPassed.airPosePassFailString, systemImage: "checkmark.shield")
-                    MetricTile(title: "Anomaly", value: jump.anomalyScore.airPoseOneDecimalString, systemImage: "exclamationmark.magnifyingglass")
+                    MetricTile(title: "Anomaly", value: jump.anomalyDisplayValue, systemImage: "exclamationmark.magnifyingglass")
                     MetricTile(title: "Outliers", value: "\(jump.outlierFeatureCount)", systemImage: "list.number")
                     MetricTile(title: "IC Knee", value: jump.averageInitialContactKneeAngleDeg.airPoseDegreeString, systemImage: "angle")
                     MetricTile(title: "KF Knee", value: jump.averageMaxKneeFlexionKneeAngleDeg.airPoseDegreeString, systemImage: "figure.strengthtraining.traditional")
                     MetricTile(title: "Landing Asym.", value: jump.landingAsymmetryRatio.airPoseRatioString, systemImage: "arrow.left.and.right")
                 }
 
-                if !jump.protocolPassed, !jump.failedProtocolChecks.isEmpty {
+                if !jump.protocolPassed, !jump.hardFailedProtocolChecks.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Protocol Checks")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(Color.airPosePrimaryText)
 
-                        ForEach(jump.failedProtocolChecks) { check in
+                        ForEach(jump.hardFailedProtocolChecks) { check in
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Failed: \(check.title)")
                                     .font(.subheadline.weight(.medium))
                                     .foregroundStyle(.red)
+                                Text(check.detailText)
+                                    .font(.footnote)
+                                    .foregroundStyle(Color.airPoseSecondaryText)
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                if !jump.advisoryProtocolChecks.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Landing Warnings")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Color.airPosePrimaryText)
+
+                        ForEach(jump.advisoryProtocolChecks) { check in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Warning: \(check.title)")
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(.orange)
                                 Text(check.detailText)
                                     .font(.footnote)
                                     .foregroundStyle(Color.airPoseSecondaryText)

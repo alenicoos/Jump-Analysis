@@ -8,6 +8,15 @@ struct JumpProtocolCheck: Codable, Equatable, Identifiable {
 
     var id: String { name }
 
+    var isAdvisory: Bool {
+        switch name {
+        case "two_foot_contact", "stable_after_second_landing":
+            return true
+        default:
+            return false
+        }
+    }
+
     var title: String {
         switch name {
         case "drop_started_from_height":
@@ -81,6 +90,7 @@ struct JumpAthleteProfile: Codable, Equatable {
 
 struct Jump: Identifiable, Codable, Equatable {
     let id: UUID
+    let cloudDocumentID: String?
     let date: Date
     let videoURL: URL?
     let athleteProfile: JumpAthleteProfile?
@@ -113,6 +123,7 @@ struct Jump: Identifiable, Codable, Equatable {
 
     init(
         id: UUID = UUID(),
+        cloudDocumentID: String? = nil,
         date: Date,
         videoURL: URL?,
         athleteProfile: JumpAthleteProfile?,
@@ -144,6 +155,7 @@ struct Jump: Identifiable, Codable, Equatable {
         imuRecording: JumpAnalysisResponse.IMURecordingSummary? = nil
     ) {
         self.id = id
+        self.cloudDocumentID = cloudDocumentID
         self.date = date
         self.videoURL = videoURL
         self.athleteProfile = athleteProfile
@@ -191,8 +203,30 @@ struct Jump: Identifiable, Codable, Equatable {
         protocolChecks.filter { !$0.passed }
     }
 
+    var hardFailedProtocolChecks: [JumpProtocolCheck] {
+        protocolChecks.filter { !$0.passed && !$0.isAdvisory }
+    }
+
+    var advisoryProtocolChecks: [JumpProtocolCheck] {
+        protocolChecks.filter { !$0.passed && $0.isAdvisory }
+    }
+
+    var usedIMU: Bool {
+        imuRecording != nil
+    }
+
     var displayPrediction: String {
-        isNormalPrediction ? "Normal" : prediction.capitalized
+        if !protocolPassed {
+            return "Protocol Fail"
+        }
+        return isNormalPrediction ? "Normal" : prediction.capitalized
+    }
+
+    var anomalyDisplayValue: String {
+        if !protocolPassed {
+            return "N/A"
+        }
+        return anomalyScore.airPoseOneDecimalString
     }
 
     var analysisResponse: JumpAnalysisResponse {
@@ -236,6 +270,7 @@ struct Jump: Identifiable, Codable, Equatable {
     func updatingNarration(summary: String, llmNarratedSummary: Bool) -> Jump {
         Jump(
             id: id,
+            cloudDocumentID: cloudDocumentID,
             date: date,
             videoURL: videoURL,
             athleteProfile: athleteProfile,
@@ -271,6 +306,7 @@ struct Jump: Identifiable, Codable, Equatable {
     func resettingNarrationStatus() -> Jump {
         Jump(
             id: id,
+            cloudDocumentID: cloudDocumentID,
             date: date,
             videoURL: videoURL,
             athleteProfile: athleteProfile,
@@ -305,6 +341,7 @@ struct Jump: Identifiable, Codable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case id
+        case cloudDocumentID
         case date
         case videoURL
         case athleteProfile
@@ -345,6 +382,7 @@ struct Jump: Identifiable, Codable, Equatable {
         let legacyContainer = try decoder.container(keyedBy: LegacyCodingKeys.self)
 
         id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        cloudDocumentID = try container.decodeIfPresent(String.self, forKey: .cloudDocumentID)
         date = try container.decodeIfPresent(Date.self, forKey: .date) ?? .now
         videoURL = try container.decodeIfPresent(URL.self, forKey: .videoURL)
         athleteProfile = try container.decodeIfPresent(JumpAthleteProfile.self, forKey: .athleteProfile)
@@ -381,6 +419,7 @@ struct Jump: Identifiable, Codable, Equatable {
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
+        try container.encodeIfPresent(cloudDocumentID, forKey: .cloudDocumentID)
         try container.encode(date, forKey: .date)
         try container.encodeIfPresent(videoURL, forKey: .videoURL)
         try container.encodeIfPresent(athleteProfile, forKey: .athleteProfile)
@@ -410,5 +449,41 @@ struct Jump: Identifiable, Codable, Equatable {
         try container.encode(kneeAsymmetryRatio, forKey: .kneeAsymmetryRatio)
         try container.encodeIfPresent(jumpGraph, forKey: .jumpGraph)
         try container.encodeIfPresent(imuRecording, forKey: .imuRecording)
+    }
+
+    func withCloudDocumentID(_ cloudDocumentID: String?) -> Jump {
+        Jump(
+            id: id,
+            cloudDocumentID: cloudDocumentID ?? self.cloudDocumentID,
+            date: date,
+            videoURL: videoURL,
+            athleteProfile: athleteProfile,
+            protocolPassed: protocolPassed,
+            protocolChecks: protocolChecks,
+            prediction: prediction,
+            anomalyScore: anomalyScore,
+            outlierFeatureCount: outlierFeatureCount,
+            analyzedFeatureCount: analyzedFeatureCount,
+            maxAbsRobustZ: maxAbsRobustZ,
+            worstFeature: worstFeature,
+            worstFeatureZ: worstFeatureZ,
+            worstFeatureValue: worstFeatureValue,
+            worstFeatureReferenceMedian: worstFeatureReferenceMedian,
+            validPoseFrames: validPoseFrames,
+            initialContactFrame: initialContactFrame,
+            maxKneeFlexionFrame: maxKneeFlexionFrame,
+            videoFPS: videoFPS,
+            estimatedShoulderWidthCm: estimatedShoulderWidthCm,
+            analysisSummary: analysisSummary,
+            llmNarratedSummary: llmNarratedSummary,
+            initialContactLeftKneeAngleDeg: initialContactLeftKneeAngleDeg,
+            initialContactRightKneeAngleDeg: initialContactRightKneeAngleDeg,
+            maxKneeFlexionLeftKneeAngleDeg: maxKneeFlexionLeftKneeAngleDeg,
+            maxKneeFlexionRightKneeAngleDeg: maxKneeFlexionRightKneeAngleDeg,
+            landingAsymmetryRatio: landingAsymmetryRatio,
+            kneeAsymmetryRatio: kneeAsymmetryRatio,
+            jumpGraph: jumpGraph,
+            imuRecording: imuRecording
+        )
     }
 }

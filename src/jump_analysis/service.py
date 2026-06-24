@@ -11,6 +11,8 @@ import pandas as pd
 from ultralytics import YOLO
 
 from jump_analysis.imu import IMURecordingSummary, WitMotionRecordingFinder
+from jump_analysis.models.jump_autoencoder import JumpAutoencoder
+from jump_analysis.models.pitch_transformer import PitchTransformer
 from jump_analysis.models import RobustAnomalyModel
 from jump_analysis.video import compare_to_reference, extract_front_features_from_yolo_frames
 from jump_analysis.video.yolo_video import (
@@ -25,6 +27,7 @@ from jump_analysis.video.yolo_video import (
 from jump_analysis.features.front_2d_features import body_keypoint
 
 logger = logging.getLogger("jump_analysis.service")
+BODY_MODEL_KEYPOINTS = tuple(index for index in range(17) if index not in (0, 1, 2, 3, 4))
 
 
 def _protocol_check_names(metadata: dict[str, int | float]) -> list[str]:
@@ -52,6 +55,11 @@ class JumpGraphPoint:
     ankle_height_px: float
     body_height_px: float
     knee_flexion_proxy_deg: float
+    frame_index: int | None = None
+    left_knee_pitch_deg: float | None = None
+    right_knee_pitch_deg: float | None = None
+    frame_error: float | None = None
+    highlighted_for_review: bool | None = None
 
 
 @dataclass
@@ -59,6 +67,8 @@ class JumpGraph:
     initial_contact_time_s: float
     max_knee_flexion_time_s: float
     points: list[JumpGraphPoint]
+    initial_contact_frame_index: int | None = None
+    max_knee_flexion_frame_index: int | None = None
 
 
 @dataclass
@@ -106,12 +116,19 @@ class VideoAnalysisService:
         z_threshold: float = 4.0,
         max_outlier_features: int = 8,
         witmotion_recordings_root: str | Path | None = None,
+        pitch_model_path: str | Path = "models/pitch_transformer.pt",
+        jump_model_path: str | Path = "models/jump_autoencoder.pt",
     ) -> None:
         self.model_path = str(model_path)
         self.reference_csv = Path(reference_csv)
         self.z_threshold = z_threshold
         self.max_outlier_features = max_outlier_features
+        self.pitch_model_path = Path(pitch_model_path)
+        self.jump_model_path = Path(jump_model_path)
         self._model: YOLO | None = None
+        self._pitch_model: PitchTransformer | None = None
+        self._jump_model: JumpAutoencoder | None = None
+        self.inference_device = PitchTransformer.best_device()
         self.recording_finder = WitMotionRecordingFinder(recordings_root=witmotion_recordings_root)
 
     def analyze_video(self, video_path: str | Path, height_cm: float) -> JumpAnalysisResult:
@@ -324,16 +341,41 @@ class VideoAnalysisService:
         start_time_s = float(frames[0].timestamp_s)
         landing_ankle_y = ankle_mean_y(frames[initial_contact_index])
         landing_body_y = float(body_keypoint(frames[initial_contact_index].keypoints_xy)[1])
+        pitch_series = self._predict_pitch_series(frames)
+        frame_errors, review_threshold = self._frame_review_data(frames, pitch_series)
         points = [
             JumpGraphPoint(
+                frame_index=index,
                 elapsed_time_s=max(float(frame.timestamp_s) - start_time_s, 0.0),
                 ankle_height_px=landing_ankle_y - ankle_mean_y(frame),
                 body_height_px=landing_body_y - float(body_keypoint(frame.keypoints_xy)[1]),
                 knee_flexion_proxy_deg=knee_flexion_proxy(frame),
+                left_knee_pitch_deg=(
+                    float(pitch_series[index, 0])
+                    if pitch_series is not None and index < len(pitch_series)
+                    else None
+                ),
+                right_knee_pitch_deg=(
+                    float(pitch_series[index, 1])
+                    if pitch_series is not None and index < len(pitch_series)
+                    else None
+                ),
+                frame_error=(
+                    float(frame_errors[index])
+                    if frame_errors is not None and index < len(frame_errors)
+                    else None
+                ),
+                highlighted_for_review=(
+                    bool(frame_errors[index] > review_threshold)
+                    if frame_errors is not None and review_threshold is not None and index < len(frame_errors)
+                    else None
+                ),
             )
-            for frame in frames
+            for index, frame in enumerate(frames)
         ]
         return JumpGraph(
+            initial_contact_frame_index=initial_contact_index,
+            max_knee_flexion_frame_index=max_knee_flexion_index,
             initial_contact_time_s=points[initial_contact_index].elapsed_time_s,
             max_knee_flexion_time_s=points[max_knee_flexion_index].elapsed_time_s,
             points=points,
@@ -343,6 +385,103 @@ class VideoAnalysisService:
         if self._model is None:
             self._model = YOLO(self.model_path)
         return self._model
+
+    def _get_pitch_model(self) -> PitchTransformer:
+        if self._pitch_model is None:
+            if not self.pitch_model_path.exists():
+                raise FileNotFoundError(f"Pitch model not found: {self.pitch_model_path}")
+            self._pitch_model = PitchTransformer.load(str(self.pitch_model_path), device=self.inference_device)
+        return self._pitch_model
+
+    def _get_jump_model(self) -> JumpAutoencoder:
+        if self._jump_model is None:
+            if not self.jump_model_path.exists():
+                raise FileNotFoundError(f"Jump model not found: {self.jump_model_path}")
+            self._jump_model = JumpAutoencoder.load(str(self.jump_model_path), device=self.inference_device)
+        return self._jump_model
+
+    @staticmethod
+    def _frames_to_transformer_input(frames: list[YoloPoseFrame], input_dim: int) -> np.ndarray:
+        """Build the temporal keypoint representation expected by the saved ML checkpoints.
+
+        Historical checkpoints exist with both 24-D body-only inputs and 34-D
+        full-keypoint inputs. Preserve the original normalization and channel
+        layout so the app graph matches the training/runtime path used by the
+        Streamlit tooling.
+        """
+
+        frame_count = len(frames)
+        keypoints = np.zeros((frame_count, 17, 2), dtype=np.float32)
+        heights = np.zeros(frame_count, dtype=np.float32)
+
+        for index, frame in enumerate(frames):
+            kp = (frame.raw_keypoints_xy if frame.raw_keypoints_xy is not None else frame.keypoints_xy).astype(np.float32)
+            keypoints[index] = kp
+            left_height = float(np.linalg.norm(kp[5] - kp[15]))
+            right_height = float(np.linalg.norm(kp[6] - kp[16]))
+            heights[index] = max((left_height + right_height) / 2.0, 1e-3)
+
+        scale = float(np.median(heights[heights > 0])) if (heights > 0).any() else 1.0
+        normalized = keypoints / scale
+        sequence = np.concatenate([normalized[:, :, 0], normalized[:, :, 1]], axis=1).astype(np.float32)
+
+        if input_dim == 24:
+            temporal_indices = [*BODY_MODEL_KEYPOINTS, *(17 + keypoint for keypoint in BODY_MODEL_KEYPOINTS)]
+            return sequence[:, temporal_indices]
+        if input_dim == 34:
+            return sequence
+        raise ValueError(f"Unsupported temporal input dimension: {input_dim}. Expected 24 or 34.")
+
+    def _predict_pitch_series(self, frames: list[YoloPoseFrame]) -> np.ndarray | None:
+        if not frames:
+            return None
+
+        try:
+            pitch_model = self._get_pitch_model()
+        except Exception as error:
+            logger.info("Pitch graph disabled: %s", error)
+            return None
+
+        try:
+            input_dim = int(getattr(getattr(pitch_model, "input_proj", None), "in_features", 24))
+            kp_seq = self._frames_to_transformer_input(frames, input_dim=input_dim)
+            pitch_series = pitch_model.predict_numpy(kp_seq, device=self.inference_device)
+        except Exception as error:
+            logger.info("Pitch graph prediction failed: %s", error)
+            return None
+
+        if pitch_series.ndim != 2 or pitch_series.shape[0] != len(frames) or pitch_series.shape[1] != 2:
+            logger.info("Pitch graph prediction returned unexpected shape=%s", getattr(pitch_series, "shape", None))
+            return None
+        return pitch_series
+
+    def _frame_review_data(
+        self,
+        frames: list[YoloPoseFrame],
+        pitch_series: np.ndarray | None,
+    ) -> tuple[np.ndarray | None, float | None]:
+        if not frames or pitch_series is None:
+            return None, None
+
+        try:
+            jump_model = self._get_jump_model()
+        except Exception as error:
+            logger.info("Frame review highlights disabled: %s", error)
+            return None, None
+
+        try:
+            kp_seq = self._frames_to_transformer_input(frames, input_dim=34)
+            seq36 = np.concatenate([kp_seq, pitch_series], axis=1)
+            frame_errors = jump_model.frame_errors_numpy(seq36, device=self.inference_device)
+            threshold = float(jump_model.anomaly_threshold) * 0.5 if jump_model.anomaly_threshold is not None else None
+        except Exception as error:
+            logger.info("Frame review highlight computation failed: %s", error)
+            return None, None
+
+        if frame_errors.ndim != 1 or len(frame_errors) != len(frames):
+            logger.info("Frame review highlight computation returned unexpected shape=%s", getattr(frame_errors, "shape", None))
+            return None, None
+        return frame_errors, threshold
 
     def _build_summary(
         self,

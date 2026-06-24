@@ -2,27 +2,41 @@ import Foundation
 
 struct JumpAnalysisResponse: Codable, Equatable {
     struct JumpGraphPoint: Codable, Equatable, Identifiable {
+        let frameIndex: Int?
         let elapsedTimeS: Double
         let ankleHeightPx: Double
         let bodyHeightPx: Double
         let kneeFlexionProxyDeg: Double
+        let leftKneePitchDeg: Double?
+        let rightKneePitchDeg: Double?
+        let frameError: Double?
+        let highlightedForReview: Bool?
 
-        var id: Double { elapsedTimeS }
+        var id: Int { frameIndex ?? Int((elapsedTimeS * 1000).rounded()) }
 
         private enum CodingKeys: String, CodingKey {
+            case frameIndex = "frame_index"
             case elapsedTimeS = "elapsed_time_s"
             case ankleHeightPx = "ankle_height_px"
             case bodyHeightPx = "body_height_px"
             case kneeFlexionProxyDeg = "knee_flexion_proxy_deg"
+            case leftKneePitchDeg = "left_knee_pitch_deg"
+            case rightKneePitchDeg = "right_knee_pitch_deg"
+            case frameError = "frame_error"
+            case highlightedForReview = "highlighted_for_review"
         }
     }
 
     struct JumpGraph: Codable, Equatable {
+        let initialContactFrameIndex: Int?
+        let maxKneeFlexionFrameIndex: Int?
         let initialContactTimeS: Double
         let maxKneeFlexionTimeS: Double
         let points: [JumpGraphPoint]
 
         private enum CodingKeys: String, CodingKey {
+            case initialContactFrameIndex = "initial_contact_frame_index"
+            case maxKneeFlexionFrameIndex = "max_knee_flexion_frame_index"
             case initialContactTimeS = "initial_contact_time_s"
             case maxKneeFlexionTimeS = "max_knee_flexion_time_s"
             case points

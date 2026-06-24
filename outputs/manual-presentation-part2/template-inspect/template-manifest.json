@@ -1,0 +1,131 @@
+{
+  "sourcePptx": "/Users/pietrolimoni/Desktop/PoliMi/03-Template-Tesi-di-Laurea-ITA.pptx",
+  "workspace": "/Users/pietrolimoni/Desktop/Jump-Analysis/outputs/manual-presentation-part2",
+  "outDir": "/Users/pietrolimoni/Desktop/Jump-Analysis/outputs/manual-presentation-part2/template-inspect",
+  "generatedAt": "2026-06-17T15:00:05.011Z",
+  "slideCount": 2,
+  "slideArtifacts": [
+    {
+      "slide": 1,
+      "previewPath": "/Users/pietrolimoni/Desktop/Jump-Analysis/outputs/manual-presentation-part2/template-inspect/source-slides/source-slide-01.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-01.png",
+      "layoutPath": "/Users/pietrolimoni/Desktop/Jump-Analysis/outputs/manual-presentation-part2/template-inspect/layouts/source-slide-01.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-01.layout.json"
+    },
+    {
+      "slide": 2,
+      "previewPath": "/Users/pietrolimoni/Desktop/Jump-Analysis/outputs/manual-presentation-part2/template-inspect/source-slides/source-slide-02.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-02.png",
+      "layoutPath": "/Users/pietrolimoni/Desktop/Jump-Analysis/outputs/manual-presentation-part2/template-inspect/layouts/source-slide-02.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-02.layout.json"
+    }
+  ],
+  "inspectPath": "/Users/pietrolimoni/Desktop/Jump-Analysis/outputs/manual-presentation-part2/template-inspect/template-inspect.ndjson",
+  "inspectRelativePath": "template-inspect/template-inspect.ndjson",
+  "inspectTruncated": false,
+  "inspectMetadata": {
+    "revision": "cy4yze",
+    "target": {
+      "id": "pr/ns7sq3"
+    },
+    "kind": {
+      "requested": "slide,textbox,shape,image,table,chart",
+      "tokens": [
+        "slide",
+        "textbox",
+        "shape",
+        "image",
+        "table",
+        "chart"
+      ]
+    },
+    "include": {
+      "tokens": []
+    },
+    "exclude": {
+      "tokens": []
+    },
+    "notices": []
+  },
+  "extractedMedia": [
+    {
+      "entry": "ppt/media/image5.emf",
+      "path": "/Users/pietrolimoni/Desktop/Jump-Analysis/outputs/manual-presentation-part2/template-inspect/assets/ppt/media/image5.emf",
+      "relativePath": "template-inspect/assets/ppt/media/image5.emf",
+      "bytes": 52740
+    },
+    {
+      "entry": "ppt/media/image1.emf",
+      "path": "/Users/pietrolimoni/Desktop/Jump-Analysis/outputs/manual-presentation-part2/template-inspect/assets/ppt/media/image1.emf",
+      "relativePath": "template-inspect/assets/ppt/media/image1.emf",
+      "bytes": 11984
+    },
+    {
+      "entry": "ppt/media/image2.emf",
+      "path": "/Users/pietrolimoni/Desktop/Jump-Analysis/outputs/manual-presentation-part2/template-inspect/assets/ppt/media/image2.emf",
+      "relativePath": "template-inspect/assets/ppt/media/image2.emf",
+      "bytes": 107828
+    },
+    {
+      "entry": "ppt/media/image3.emf",
+      "path": "/Users/pietrolimoni/Desktop/Jump-Analysis/outputs/manual-presentation-part2/template-inspect/assets/ppt/media/image3.emf",
+      "relativePath": "template-inspect/assets/ppt/media/image3.emf",
+      "bytes": 576
+    },
+    {
+      "entry": "ppt/media/image4.emf",
+      "path": "/Users/pietrolimoni/Desktop/Jump-Analysis/outputs/manual-presentation-part2/template-inspect/assets/ppt/media/image4.emf",
+      "relativePath": "template-inspect/assets/ppt/media/image4.emf",
+      "bytes": 6128
+    }
+  ],
+  "fonts": [
+    "+mj-cs",
+    "+mj-ea",
+    "+mj-lt",
+    "+mn-cs",
+    "+mn-ea",
+    "+mn-lt",
+    "Angsana New",
+    "Arial",
+    "Calibri",
+    "Calibri Light",
+    "Cordia New",
+    "DaunPenh",
+    "DokChampa",
+    "Estrangelo Edessa",
+    "Euphemia",
+    "Gautami",
+    "Iskoola Pota",
+    "Kalinga",
+    "Kartika",
+    "Latha",
+    "MV Boli",
+    "Mangal",
+    "Microsoft Himalaya",
+    "Microsoft Uighur",
+    "Microsoft Yi Baiti",
+    "Mongolian Baiti",
+    "MoolBoran",
+    "Nyala",
+    "Plantagenet Cherokee",
+    "Raavi",
+    "Shruti",
+    "Sylfaen",
+    "Times New Roman",
+    "Tunga",
+    "Vrinda",
+    "新細明體",
+    "游ゴシック",
+    "游ゴシック Light",
+    "等线",
+    "等线 Light",
+    "맑은 고딕"
+  ],
+  "packageParts": {
+    "mediaCount": 5,
+    "slideXmlCount": 2,
+    "chartCount": 0,
+    "tableSlideCount": 0
+  }
+}

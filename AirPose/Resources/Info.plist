@@ -8,6 +8,8 @@
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleDisplayName</key>
+	<string>JumpGuard</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
@@ -26,11 +28,11 @@
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>AirPose uses the camera to record jumps for posture and biomechanics analysis.</string>
+	<string>JumpGuard uses the camera to record jumps for posture and biomechanics analysis.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>AirPose uses the microphone while recording jump videos.</string>
+	<string>JumpGuard uses the microphone while recording jump videos.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>AirPose may save analyzed jump videos to your library in a future version.</string>
+	<string>JumpGuard may save analyzed jump videos to your library in a future version.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
